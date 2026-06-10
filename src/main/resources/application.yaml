@@ -16,7 +16,7 @@ mybatis:
 mybatis-plus:
   configuration:
     # MyBatis 配置
-    map-underscore-to-camel-case: true
+    map-underscore-to-camel-case: false
     # 仅在开发环境打印日志
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
@@ -35,7 +35,6 @@ knife4j:
     version: 1.0
     group:
       default:
-        group-name: 默认分组
         api-rule: package
         api-rule-resources:
           - xyz.bbkb.yunpicture.controller
