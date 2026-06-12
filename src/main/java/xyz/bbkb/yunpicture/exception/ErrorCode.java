@@ -11,8 +11,10 @@ public enum ErrorCode {
     NOT_FOUNT_EORROR(40400, "请求的数据不存在"),
     FORBIDDEN_ERROR(40300, "禁止访问"),
     SYSTEM_ERROR(50000, "系统内部异常"),
-    OPERATION(50001, "操作异常");
-
+    OPERATION(50001, "操作异常"),
+    OPERATION_ERROR(50001, "操作异常"),
+    NOT_FOUND_ERROR(40400, "请求的数据不存在")
+    ;
     public final int code;
     private final String message;
 

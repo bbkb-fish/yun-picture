@@ -18,6 +18,7 @@ public class UserLoginVO implements Serializable {
     private Long id;
     private String userAccount;
     private Date createTime;
+    private String userAvatar;
     private String userRole;
     private Date editTime;
     private Date updateTime;

@@ -36,7 +36,7 @@ public class UserController {
      * @return
      */
     @PostMapping("/register")
-    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+//    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Long> userRegister(@RequestBody UserRegisterDTO userRegisterDTO) {
         log.info("用户注册：{}", userRegisterDTO);
         return ResultUtils.success(userService.userRegister(userRegisterDTO));
@@ -73,6 +73,7 @@ public class UserController {
      */
     @PostMapping("/logout")
     public BaseResponse<String> userLogout(HttpServletRequest request) {
+        log.info("用户登出");
         Boolean result = userService.userLogout(request);
         return ResultUtils.success("登出成功");
     }
@@ -130,6 +131,7 @@ public class UserController {
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+        log.info("删除用户: {}", deleteRequest);
         boolean result = userService.removeById(deleteRequest.getId());
         return ResultUtils.success(result);
     }
@@ -140,6 +142,7 @@ public class UserController {
         if (userUpdateDTO == null || userUpdateDTO.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
+        log.info("更新用户信息：{}", userUpdateDTO);
         User user = new User();
         BeanUtil.copyProperties(userUpdateDTO, user);
         boolean result = userService.updateById(user);
@@ -151,6 +154,7 @@ public class UserController {
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<Page<UserVO>> listUserPageQuery(@RequestBody UserQueryDTO userQueryDTO) {
         ThrowUtils.throwIf(BeanUtil.isEmpty(userQueryDTO), ErrorCode.PARAMS_ERROR);
+        log.info("展示用户所有界面：{}", userQueryDTO);
         long current = userQueryDTO.getCurrent();
         long pageSize = userQueryDTO.getPageSize();
         Page<User> userPage = userService.page(new Page<>(current, pageSize), userService.getPageQueryWrapper(userQueryDTO));
