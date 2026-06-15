@@ -3,6 +3,7 @@ package xyz.bbkb.yunpicture.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.multipart.MultipartFile;
+import xyz.bbkb.yunpicture.domain.dto.picture.PictureLoadByBatchDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureQueryDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureReviewDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureUploadDTO;
@@ -69,4 +70,12 @@ public interface PictureService extends IService<Picture> {
      * @param pictureReviewStatusEnum
      */
     void fillReviewParams(Picture picture, User loginUser, PictureReviewStatusEnum pictureReviewStatusEnum, String message);
+
+    /**
+     * 批量抓取图片
+     * @param pictureLoadByBatchDTO
+     * @param loginUser
+     * @return
+     */
+    Integer uploadPictureByBatch(PictureLoadByBatchDTO pictureLoadByBatchDTO, User loginUser);
 }

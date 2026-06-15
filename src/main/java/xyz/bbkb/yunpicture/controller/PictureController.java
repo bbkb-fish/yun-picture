@@ -240,4 +240,19 @@ public class PictureController {
         return ResultUtils.success(Boolean.TRUE);
     }
 
+    /**
+     * 批量抓取并创建图片
+     * @param pictureLoadByBatchDTO
+     * @param request
+     * @return
+     */
+    @PostMapping("/upload/batch")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public BaseResponse<Integer> uploadBatch(@RequestBody PictureLoadByBatchDTO pictureLoadByBatchDTO, HttpServletRequest request) {
+        ThrowUtils.throwIf(pictureLoadByBatchDTO == null, ErrorCode.PARAMS_ERROR);
+        log.info("批量抓取图片：{}", pictureLoadByBatchDTO);
+        User user = userService.getLoginUser(request);
+        Integer picNum = pictureService.uploadPictureByBatch(pictureLoadByBatchDTO, user);
+        return ResultUtils.success(picNum);
+    }
 }

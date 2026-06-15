@@ -8,9 +8,15 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.multipart.MultipartFile;
 import xyz.bbkb.yunpicture.domain.dto.file.UploadPictureFileDTO;
+import xyz.bbkb.yunpicture.domain.dto.picture.PictureLoadByBatchDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureQueryDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureReviewDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureUploadDTO;
@@ -32,6 +38,7 @@ import org.springframework.stereotype.Service;
 import xyz.bbkb.yunpicture.service.UserService;
 
 import javax.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -41,6 +48,7 @@ import java.util.stream.Collectors;
 * @createDate 2026-06-12 16:40:34
 */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     implements PictureService{
@@ -120,7 +128,11 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         // 构造入库信息
         Picture picture = BeanUtil.copyProperties(uploadPictureFileInfo, Picture.class);
         picture.setUserId(loginUser.getId());
-        picture.setName(uploadPictureFileInfo.getPicName());
+        String picName = uploadPictureFileInfo.getPicName();
+        if (pictureUploadDTO != null && StrUtil.isNotBlank(pictureUploadDTO.getPicName())) {
+            picName = pictureUploadDTO.getPicName();
+        }
+        picture.setName(picName);
         // 补充审核参数
         this.updateOrCreate(picture, loginUser);
         // 操作数据库
@@ -261,6 +273,159 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                }
                throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
            }
+    }
+
+    @Override
+    public Integer uploadPictureByBatch(PictureLoadByBatchDTO pictureLoadByBatchDTO, User loginUser) {
+        // 校验参数
+        ThrowUtils.throwIf(pictureLoadByBatchDTO.getCount() > 30, ErrorCode.PARAMS_ERROR, "最多传30张");
+
+        // 抓取内容
+        String fetchUrl = pictureLoadByBatchDTO.getUrlByBing();
+        Document document = null;
+        try {
+            document = Jsoup.connect(fetchUrl)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .timeout(10000)
+                    .get();
+        } catch (IOException e) {
+            log.error("获取网络页面失败", e);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "获取网络页面失败");
+        }
+
+        // 根据 initPic 的值选择不同的解析方式
+        // initPic = 0: 获取缩略图
+        // initPic = 1: 获取高清原图
+        boolean isHighQuality = pictureLoadByBatchDTO.getInitPic() == 1;
+
+        int uploadCount = 0;
+        int requestCount = 0;
+
+        if (isHighQuality) {
+            // ========== 高清原图模式 ==========
+            uploadCount = uploadHighQualityImages(document, pictureLoadByBatchDTO, loginUser, requestCount, uploadCount);
+        } else {
+            // ========== 缩略图模式（原有逻辑）==========
+            uploadCount = uploadThumbnailImages(document, pictureLoadByBatchDTO, loginUser, requestCount, uploadCount);
+        }
+
+        log.info("批量上传完成，共上传 {} 张图片，共请求 {} 次，模式：{}",
+                uploadCount, requestCount, isHighQuality ? "高清原图" : "缩略图");
+        return uploadCount;
+    }
+
+    /**
+     * 上传高清原图
+     */
+    private Integer uploadHighQualityImages(Document document, PictureLoadByBatchDTO pictureLoadByBatchDTO,
+                                            User loginUser, int requestCount, int uploadCount) {
+        // 解析内容 - 通过 .iusc 的 m 属性获取原图地址
+        Elements imageItems = document.select(".iusc");
+        if (imageItems.isEmpty()) {
+            // 备选选择器
+            imageItems = document.select(".imgpt .iusc");
+        }
+
+        for (Element item : imageItems) {
+            requestCount++;
+            if (requestCount > pictureLoadByBatchDTO.getCount() * 2) break;
+
+            String fileUrl = null;
+
+            // 获取原始图片URL - 从 m 属性中解析
+            String mAttr = item.attr("m");
+            if (StrUtil.isNotBlank(mAttr)) {
+                try {
+                    // m 属性是 JSON 格式，包含 murl（原图地址）
+                    com.alibaba.fastjson.JSONObject jsonObj = com.alibaba.fastjson.JSON.parseObject(mAttr);
+                    fileUrl = jsonObj.getString("murl");
+                    if (StrUtil.isBlank(fileUrl)) {
+                        // 如果 murl 没有，尝试取 turl
+                        fileUrl = jsonObj.getString("turl");
+                    }
+                } catch (Exception e) {
+                    log.error("解析 m 属性失败: {}", mAttr, e);
+                }
+            }
+
+            // 如果通过 m 属性没有获取到，尝试获取 src 属性
+            if (StrUtil.isBlank(fileUrl)) {
+                Element img = item.select("img").first();
+                if (img != null) {
+                    fileUrl = img.attr("src");
+                }
+            }
+
+            if (StrUtil.isBlank(fileUrl)) {
+                log.info("获取高清图URL失败，跳过第 {} 个", requestCount);
+                continue;
+            }
+
+            // 上传图片
+            try {
+                PictureUploadDTO pictureUploadDTO = new PictureUploadDTO();
+                pictureUploadDTO.setFileUrl(fileUrl);
+                pictureUploadDTO.setPicName(pictureLoadByBatchDTO.getSearchText());
+                PictureVO pictureVO = this.uploadPicture(fileUrl, pictureUploadDTO, loginUser);
+                log.info("高清图片上传成功：{}，原图地址：{}", pictureVO, fileUrl);
+                uploadCount++;
+            } catch (Exception e) {
+                log.error("高清图片上传失败，URL: {}", fileUrl, e);
+                continue;
+            }
+
+            if (uploadCount >= pictureLoadByBatchDTO.getCount()) break;
+        }
+
+        return uploadCount;
+    }
+
+    /**
+     * 上传缩略图（原有逻辑）
+     */
+    private Integer uploadThumbnailImages(Document document, PictureLoadByBatchDTO pictureLoadByBatchDTO,
+                                          User loginUser, int requestCount, int uploadCount) {
+        // 解析内容
+        Element div = document.getElementsByClass("dgControl").first();
+        if (ObjUtil.isEmpty(div)) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "获取元素失败");
+        }
+
+        Elements lists = div.select("img.mimg");
+
+        for (Element list : lists) {
+            requestCount++;
+            if (requestCount > pictureLoadByBatchDTO.getCount() * 2) break;
+
+            String fileUrl = list.attr("src");
+            if (StrUtil.isBlank(fileUrl)) {
+                log.info("获取缩略图URL失败");
+                continue;
+            }
+
+            // 处理地址：去除 URL 后面的参数
+            int questionIndex = fileUrl.indexOf("?");
+            if (questionIndex > -1) {
+                fileUrl = fileUrl.substring(0, questionIndex);
+            }
+
+            // 上传图片
+            try {
+                PictureUploadDTO pictureUploadDTO = new PictureUploadDTO();
+                pictureUploadDTO.setFileUrl(fileUrl);
+                pictureUploadDTO.setPicName(pictureLoadByBatchDTO.getSearchText());
+                PictureVO pictureVO = this.uploadPicture(fileUrl, pictureUploadDTO, loginUser);
+                log.info("缩略图上传成功：{}", pictureVO);
+                uploadCount++;
+            } catch (Exception e) {
+                log.error("缩略图上传失败", e);
+                continue;
+            }
+
+            if (uploadCount >= pictureLoadByBatchDTO.getCount()) break;
+        }
+
+        return uploadCount;
     }
 }
 

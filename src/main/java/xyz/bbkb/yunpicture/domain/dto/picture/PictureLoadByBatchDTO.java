@@ -12,6 +12,7 @@ public class PictureLoadByBatchDTO implements Serializable {
     private static final long serialVersionUID = 4491098210166409698L;
     private String searchText;
     private Integer count = 10;
+    private Integer initPic = 0; // 0代表缩略图，1代表高清
     public String getUrlByBing() {
         return "https://cn.bing.com/images/async?q=" + searchText + "&mmasync=1";
     }
