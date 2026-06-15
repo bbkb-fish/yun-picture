@@ -4,11 +4,13 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.multipart.MultipartFile;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureQueryDTO;
+import xyz.bbkb.yunpicture.domain.dto.picture.PictureReviewDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureUploadDTO;
 import xyz.bbkb.yunpicture.domain.entity.Picture;
 import com.baomidou.mybatisplus.extension.service.IService;
 import xyz.bbkb.yunpicture.domain.entity.User;
 import xyz.bbkb.yunpicture.domain.vo.PictureVO;
+import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 
 import javax.servlet.http.HttpServletRequest;
 
@@ -21,12 +23,12 @@ public interface PictureService extends IService<Picture> {
 
     /**
      * 上传或更新
-     * @param multipartFile
+     * @param inputSource
      * @param pictureUploadDTO
      * @param loginUser
      * @return
      */
-    PictureVO uploadPicture(MultipartFile multipartFile, PictureUploadDTO pictureUploadDTO, User loginUser);
+    PictureVO uploadPicture(Object inputSource, PictureUploadDTO pictureUploadDTO, User loginUser);
 
 
     QueryWrapper<Picture> getQueryWrapper(PictureQueryDTO pictureQueryDTO) ;
@@ -46,4 +48,25 @@ public interface PictureService extends IService<Picture> {
      * @param picture
      */
     void validPicture(Picture picture) ;
+
+    /**
+     * 审核图片
+     * @param pictureReviewDTO
+     * @param user
+     */
+    void doPictureReview(PictureReviewDTO pictureReviewDTO, User user);
+
+    /**
+     * 更新或上传图片，审核状态设置
+     * @param picture
+     * @param loginUser
+     */
+    void updateOrCreate(Picture picture, User loginUser);
+    /**
+     * 填充图片状态
+     * @param picture
+     * @param loginUser
+     * @param pictureReviewStatusEnum
+     */
+    void fillReviewParams(Picture picture, User loginUser, PictureReviewStatusEnum pictureReviewStatusEnum, String message);
 }

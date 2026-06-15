@@ -22,9 +22,14 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 
+
+/**
+ * 已废弃，改为使用upload包里面的方法
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@Deprecated // 表示这个服务已废弃
 public class FileManger {
     private final CosManager cosManager;
     private final CosClientConfig cosClientConfig;
