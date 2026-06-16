@@ -13,5 +13,10 @@ public class UploadPictureFileDTO {
     private int picHeight;
     private Double picScale;
     private String url;
+    private String originUrl;
+    /**
+     * 缩略图url
+     */
+    private String thumbnailUrl;
     private String picFormat;
 }

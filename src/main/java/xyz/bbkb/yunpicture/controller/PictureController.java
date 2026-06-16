@@ -10,8 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import xyz.bbkb.yunpicture.annotation.AuthCheck;
 import xyz.bbkb.yunpicture.common.BaseResponse;
@@ -31,6 +35,7 @@ import xyz.bbkb.yunpicture.service.PictureService;
 import xyz.bbkb.yunpicture.service.UserService;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Date;
@@ -98,6 +103,8 @@ public class PictureController {
             // 操作数据库
             boolean result = pictureService.removeById(picture);
             ThrowUtils.throwIf(!result, ErrorCode.OPERATION);
+            // 异步删除数据
+            pictureService.clearPictureFile(picture);
             return ResultUtils.success(true);
         }
         throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "本人或管理员才能删除");
@@ -146,7 +153,6 @@ public class PictureController {
         // 获取封装类
         return ResultUtils.success(picture);
     }
-
     /**
      * 根据 id 获取图片（封装类）
      */
@@ -316,4 +322,51 @@ public class PictureController {
         Integer picNum = pictureService.uploadPictureByBatch(pictureLoadByBatchDTO, user);
         return ResultUtils.success(picNum);
     }
+
+
+    /**
+     * 下载普通图片（优化版）
+     */
+    @PostMapping("/download/normal")
+    public void downloadRemoteImage(@RequestBody PictureDownloadDTO pictureDownloadPictureDTO,
+                                    HttpServletResponse response) {
+        ThrowUtils.throwIf(pictureDownloadPictureDTO == null, ErrorCode.PARAMS_ERROR);
+        log.info("下载普通图片：{}", pictureDownloadPictureDTO);
+
+        Picture picture = pictureService.getById(pictureDownloadPictureDTO.getId());
+        if (picture == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
+        }
+
+        String imageUrl = picture.getUrl();
+        String filename = pictureDownloadPictureDTO.getFileName();
+
+        pictureService.downloadImage(imageUrl, filename, response);
+    }
+
+    /**
+     * 下载高清图片（优化版）
+     */
+    @PostMapping("/download/high")
+    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
+    public void downloadRemoteHighDefinitionImage(@RequestBody PictureDownloadDTO pictureDownloadPictureDTO,
+                                                  HttpServletResponse response) {
+        ThrowUtils.throwIf(pictureDownloadPictureDTO == null, ErrorCode.PARAMS_ERROR);
+        log.info("下载高清图片：{}", pictureDownloadPictureDTO);
+
+        Picture picture = pictureService.getById(pictureDownloadPictureDTO.getId());
+        if (picture == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
+        }
+
+        // 优先使用原图地址
+        String imageUrl = (picture.getOriginUrl() != null && !picture.getOriginUrl().isEmpty())
+                ? picture.getOriginUrl()
+                : picture.getUrl();
+        String filename = pictureDownloadPictureDTO.getFileName();
+
+        pictureService.downloadImage(imageUrl, filename, response);
+    }
+
+
 }

@@ -2,6 +2,7 @@ package xyz.bbkb.yunpicture.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -14,6 +15,8 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpHeaders;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.multipart.MultipartFile;
 import xyz.bbkb.yunpicture.domain.dto.file.UploadPictureFileDTO;
 import xyz.bbkb.yunpicture.domain.dto.picture.PictureLoadByBatchDTO;
@@ -28,6 +31,7 @@ import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 import xyz.bbkb.yunpicture.exception.BusinessException;
 import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
+import xyz.bbkb.yunpicture.manager.CosManager;
 import xyz.bbkb.yunpicture.manager.FileManger;
 import xyz.bbkb.yunpicture.manager.upload.FilePictureUpload;
 import xyz.bbkb.yunpicture.manager.upload.PictureUploadTemplate;
@@ -36,11 +40,21 @@ import xyz.bbkb.yunpicture.service.PictureService;
 import xyz.bbkb.yunpicture.mapper.PictureMapper;
 import org.springframework.stereotype.Service;
 import xyz.bbkb.yunpicture.service.UserService;
+import xyz.bbkb.yunpicture.utils.PictureUtil;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
 import java.util.*;
 import java.util.stream.Collectors;
+
+import static xyz.bbkb.yunpicture.utils.PictureUtil.generateFilename;
+import static xyz.bbkb.yunpicture.utils.PictureUtil.guessContentTypeFromUrl;
 
 /**
 * @author dearSmile
@@ -56,6 +70,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     private final UserService userService;
     private final FilePictureUpload filePictureUpload;
     private final UrlPictureUpload urlPictureUpload;
+    private final CosManager cosManager;
+
     /**
      * 数据校验
      * @param picture
@@ -107,8 +123,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         if(pictureUploadDTO != null) {
             pictureId = pictureUploadDTO.getId();
         }
+        // 更新操作
+        Picture oldPicture = null;
         if (pictureId != null) {
-            Picture oldPicture = this.getById(pictureId);
+            oldPicture = this.getById(pictureId);
 //            boolean exists = this.lambdaQuery()
 //                    .eq(Picture::getId, pictureId)
 //                    .exists();
@@ -141,6 +159,10 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             picture.setEditTime(new Date());
         }
         boolean result = this.saveOrUpdate(picture);
+        // 如果是更新，清理之前的图片资源
+        if (oldPicture != null) {
+            this.clearPictureFile(oldPicture);
+        }
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION, "数据库出错，图片上传失败");
         return PictureVO.objToVO(picture);
     }
@@ -426,6 +448,126 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         }
 
         return uploadCount;
+    }
+    public void downloadImage(String imageUrl, String filename, HttpServletResponse response) {
+        if (imageUrl == null || imageUrl.isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "图片地址不存在");
+        }
+
+        HttpURLConnection connection = null;
+        try (OutputStream outputStream = response.getOutputStream()) {
+            URL url = new URL(imageUrl);
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(30000);
+            connection.setReadTimeout(60000);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+
+            int statusCode = connection.getResponseCode();
+            if (statusCode != HttpURLConnection.HTTP_OK) {
+                log.error("远程服务器返回错误: {}", statusCode);
+                response.setStatus(HttpServletResponse.SC_BAD_GATEWAY);
+                response.getWriter().write("获取图片失败");
+                return;
+            }
+
+            // 读取前8个字节用于判断真实格式
+            byte[] header = new byte[8];
+            String realExtension = ".jpg"; // 默认
+
+            try (InputStream inputStream = connection.getInputStream()) {
+                // 读取文件头
+                int headerRead = inputStream.read(header, 0, 8);
+                if (headerRead > 0) {
+                    realExtension = PictureUtil.detectImageFormat(header);
+                }
+
+                // 获取Content-Type作为备用
+                String contentType = connection.getContentType();
+                if (contentType == null || contentType.isEmpty()) {
+                    contentType = PictureUtil.guessContentTypeFromUrl(imageUrl);
+                }
+
+                // 生成文件名
+                String finalFilename = generateFilenameWithRealExtension(filename, realExtension, imageUrl);
+                String encodedFilename = URLEncoder.encode(finalFilename, "UTF-8")
+                        .replaceAll("\\+", "%20");
+
+                // 设置响应头
+                response.setContentType(contentType);
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename*=UTF-8''" + encodedFilename);
+                response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate");
+
+                // 写入文件头（已经读取的前8字节）
+                outputStream.write(header, 0, headerRead);
+
+                // 继续传输剩余内容
+                byte[] buffer = new byte[8192];
+                int bytesRead;
+                long totalBytes = headerRead;
+                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                    totalBytes += bytesRead;
+                    if (totalBytes > 100 * 1024 * 1024) {
+                        log.info("正在下载大文件: {}, 已传输: {} MB", finalFilename, totalBytes / 1024 / 1024);
+                    }
+                }
+                outputStream.flush();
+                log.info("图片下载成功: {}, 大小: {} bytes, 格式: {}", finalFilename, totalBytes, realExtension);
+            }
+
+        } catch (Exception e) {
+            log.error("下载图片失败: {}", e.getMessage(), e);
+            try {
+                if (!response.isCommitted()) {
+                    response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.getWriter().write("{\"error\":\"下载失败: " + e.getMessage() + "\"}");
+                }
+            } catch (Exception ex) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "下载失败");
+            }
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    @Async // 异步执行
+    @Override
+    public void clearPictureFile(Picture oldPicture) {
+        // 判断该图片是否被多条记录使用
+        String url = oldPicture.getUrl();
+        Long count = this.lambdaQuery()
+                .eq(Picture::getUrl, url)
+                .count();
+        // 如果有条记录用到了这个，就不清理
+        if (count > 1) {
+            return;
+        }
+        // 删除图片
+        cosManager.delObject(url);
+        // 删除原图
+        String initPic = oldPicture.getOriginUrl();
+        if (StrUtil.isNotBlank(initPic)) {
+            cosManager.delObject(initPic);
+        }
+        // 删除缩略图
+        String thumbnailUrl = oldPicture.getThumbnailUrl();
+        if (StrUtil.isNotBlank(thumbnailUrl)) {
+            cosManager.delObject(thumbnailUrl);
+        }
+    }
+
+    private String generateFilenameWithRealExtension(String customFilename, String realExtension, String imageUrl) {
+        if (StrUtil.isNotBlank(customFilename)) {
+            // 去除原有扩展名，使用真实扩展名
+            String baseName = FileUtil.mainName(customFilename);
+            return baseName + realExtension;
+        }
+        return "image_" + System.currentTimeMillis() + realExtension;
     }
 }
 

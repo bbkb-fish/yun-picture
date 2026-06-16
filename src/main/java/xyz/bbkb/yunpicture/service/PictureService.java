@@ -14,6 +14,7 @@ import xyz.bbkb.yunpicture.domain.vo.PictureVO;
 import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
 * @author dearSmile
@@ -78,4 +79,18 @@ public interface PictureService extends IService<Picture> {
      * @return
      */
     Integer uploadPictureByBatch(PictureLoadByBatchDTO pictureLoadByBatchDTO, User loginUser);
+
+    /**
+     * 流式下载图片
+     * @param imageUrl
+     * @param filename
+     * @param response
+     */
+    void downloadImage(String imageUrl, String filename, HttpServletResponse response);
+
+    /**
+     * 清除COS中的文件
+     * @param oldPicture
+     */
+    void clearPictureFile(Picture oldPicture);
 }
