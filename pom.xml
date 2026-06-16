@@ -48,6 +48,11 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-pool2</artifactId>
         </dependency>
+<!--        spring Session + Redis-->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-data-redis</artifactId>
+        </dependency>
 <!--        Caffeine-->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>

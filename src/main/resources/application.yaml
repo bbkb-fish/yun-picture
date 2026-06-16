@@ -2,6 +2,9 @@ server:
   port: 8123
   servlet:
     context-path: /api  # 表示必须要localhost:8123/api才可以访问
+    session:
+      cookie:
+        max-age: 2592000
 spring:
   application:
     name: yun-picture
@@ -20,6 +23,11 @@ spring:
         max-idle: 10
         min-idle: 1
         time-between-eviction-runs: 10s
+  # session配置，把session存储到redis中，以防重启后又要重新登录
+  session:
+    store-type: redis
+    # session 30 天后过期
+    timeout: 2592000
   profiles:
     active: local
   # servlet文件上传体积默认小于1M
