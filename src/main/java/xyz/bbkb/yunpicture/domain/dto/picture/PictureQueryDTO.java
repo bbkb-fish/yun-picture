@@ -11,7 +11,6 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class PictureQueryDTO extends PageRequest implements Serializable {
-
     private static final long serialVersionUID = 5469619701861263536L;
     private Long id;
     private String name;
@@ -44,4 +43,12 @@ public class PictureQueryDTO extends PageRequest implements Serializable {
      * 审核时间
      */
     private Date reviewTime;
+    /**
+     * 空间id
+     */
+    private Long spaceId;
+    /**
+     * 是否查公共图库
+     */
+    private boolean nullSpaceId;
 }

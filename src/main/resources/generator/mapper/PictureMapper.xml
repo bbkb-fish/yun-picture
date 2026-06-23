@@ -2,9 +2,9 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="generator.mapper.PictureMapper">
+<mapper namespace="xyz.bbkb.yunpicture.mapper.PictureMapper">
 
-    <resultMap id="BaseResultMap" type="generator.domain.Picture">
+    <resultMap id="BaseResultMap" type="xyz.bbkb.yunpicture.domain.entity.Picture">
             <id property="id" column="id" />
             <result property="url" column="url" />
             <result property="originUrl" column="originUrl" />
@@ -19,6 +19,7 @@
             <result property="picScale" column="picScale" />
             <result property="picFormat" column="picFormat" />
             <result property="userId" column="userId" />
+            <result property="spaceId" column="spaceId" />
             <result property="createTime" column="createTime" />
             <result property="editTime" column="editTime" />
             <result property="updateTime" column="updateTime" />
@@ -32,7 +33,7 @@
     <sql id="Base_Column_List">
         id,url,originUrl,thumbnailUrl,name,introduction,category,tags,
         picSize,picWidth,picHeight,picScale,picFormat,
-        userId,createTime,editTime,updateTime,isDelete,
+        userId,spaceId,createTime,editTime,updateTime,isDelete,
         reviewStatus,reviewMessage,reviewerId,reviewTime
     </sql>
 </mapper>

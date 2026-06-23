@@ -3,10 +3,7 @@ package xyz.bbkb.yunpicture.service;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.springframework.web.multipart.MultipartFile;
-import xyz.bbkb.yunpicture.domain.dto.picture.PictureLoadByBatchDTO;
-import xyz.bbkb.yunpicture.domain.dto.picture.PictureQueryDTO;
-import xyz.bbkb.yunpicture.domain.dto.picture.PictureReviewDTO;
-import xyz.bbkb.yunpicture.domain.dto.picture.PictureUploadDTO;
+import xyz.bbkb.yunpicture.domain.dto.picture.*;
 import xyz.bbkb.yunpicture.domain.entity.Picture;
 import com.baomidou.mybatisplus.extension.service.IService;
 import xyz.bbkb.yunpicture.domain.entity.User;
@@ -93,4 +90,25 @@ public interface PictureService extends IService<Picture> {
      * @param oldPicture
      */
     void clearPictureFile(Picture oldPicture);
+
+    /**
+     * 校验空间的权限
+     * @param loginUser
+     * @param picture
+     */
+    void checkPictureAuth(User loginUser, Picture picture);
+
+    /**
+     * 删除图片
+     * @param pictureId
+     * @param loginUser
+     */
+    void deletePicture(long pictureId, User loginUser);
+
+    /**
+     * 编辑图片
+     * @param pictureEditDTO
+     * @param loginUser
+     */
+    void editPicture(PictureEditDTO pictureEditDTO, User loginUser);
 }
