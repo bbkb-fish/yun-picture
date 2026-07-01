@@ -57,7 +57,7 @@ public abstract class PictureUploadTemplate {
                 if (objectList.size() > 1) {
                     thumbnailCiObject = objectList.get(1);
                 }
-                return buildResult(originalFilename, uploadPath, ciObject, thumbnailCiObject, file);
+                return buildResult(originalFilename, uploadPath, ciObject, thumbnailCiObject, file, imageInfo);
             }
             // 封装返回结果
             return buildResult(originalFilename, file, uploadPath, imageInfo);
@@ -103,6 +103,7 @@ public abstract class PictureUploadTemplate {
         uploadPictureDTO.setPicFormat(imageInfo.getFormat());
         uploadPictureDTO.setPicHeight(imageInfo.getHeight());
         uploadPictureDTO.setPicWidth(imageInfo.getWidth());
+        uploadPictureDTO.setPicColor(imageInfo.getAve()); // 图片主色调
         uploadPictureDTO.setPicScale(NumberUtil.round(1.0 * imageInfo.getWidth()/imageInfo.getHeight(), 2).doubleValue());
         return uploadPictureDTO;
     }
@@ -111,9 +112,10 @@ public abstract class PictureUploadTemplate {
      * @param originalFilename
      * @param uploadPath
      * @param ciObject
+     * @param imageInfo 图片信息
      * @return
      */
-    private UploadPictureFileDTO buildResult(String originalFilename, String uploadPath, CIObject ciObject, CIObject thumbnailObject, File file) {
+    private UploadPictureFileDTO buildResult(String originalFilename, String uploadPath, CIObject ciObject, CIObject thumbnailObject, File file, ImageInfo imageInfo) {
         UploadPictureFileDTO uploadPictureDTO = new UploadPictureFileDTO();
         uploadPictureDTO.setUrl(cosClientConfig.getHost() + "/" + ciObject.getKey());
         uploadPictureDTO.setOriginUrl(cosClientConfig.getHost() + "/" +uploadPath);
@@ -123,6 +125,7 @@ public abstract class PictureUploadTemplate {
         uploadPictureDTO.setPicFormat(ciObject.getFormat());
         uploadPictureDTO.setPicHeight(ciObject.getHeight());
         uploadPictureDTO.setPicWidth(ciObject.getWidth());
+        uploadPictureDTO.setPicColor(imageInfo.getAve()); // 图片主色调
         uploadPictureDTO.setPicScale(NumberUtil.round(1.0 * ciObject.getWidth()/ciObject.getHeight(), 2).doubleValue());
         return uploadPictureDTO;
     }

@@ -4,7 +4,11 @@ import org.springframework.http.MediaType;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 
+import java.awt.*;
+
 public class PictureUtil {
+
+    private PictureUtil() {}
 
     /**
      * 根据URL猜测Content-Type
@@ -130,5 +134,24 @@ public class PictureUtil {
         }
 
         return ".jpg";
+    }
+
+    /**
+     * 计算图片中颜色的相似度
+     * @param c1
+     * @param c2
+     * @return
+     */
+    public static double calculateSimilarity(Color c1, Color c2) {
+        int r1 = c1.getRed();
+        int g1 = c1.getGreen();
+        int b1 = c1.getBlue();
+
+        int r2 = c2.getRed();
+        int g2 = c2.getGreen();
+        int b2 = c2.getBlue();
+
+        double dis = Math.sqrt(Math.pow(r1 - r2, 2) + Math.pow(b1 - b2, 2) + Math.pow(g1 - g2, 2));
+        return 1 - dis / Math.sqrt(3 * Math.sqrt(3 * Math.pow(255, 2)));
     }
 }

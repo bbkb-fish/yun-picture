@@ -19,4 +19,8 @@ public class UploadPictureFileDTO {
      */
     private String thumbnailUrl;
     private String picFormat;
+    /**
+     * 图片主色调
+     */
+    private String picColor;
 }

@@ -377,5 +377,18 @@ public class PictureController {
         pictureService.downloadImage(imageUrl, filename, response);
     }
 
+    /**
+     * 根据颜色查询图片
+     * @param searchDTO
+     * @return
+     */
+    public BaseResponse<List<PictureVO>> searchPictureByColor(@RequestBody SearchPictureByColorDTO searchDTO, HttpServletRequest request) {
+        ThrowUtils.throwIf(searchDTO == null, ErrorCode.PARAMS_ERROR);
+        String picColor = searchDTO.getPicColor();
+        Long spaceId = searchDTO.getSpaceId();
+        User user = userService.getLoginUser(request);
+        List<PictureVO> pictureVOS = pictureService.searchPictureByColor(spaceId, picColor, user);
+        return ResultUtils.success(pictureVOS);
+    }
 
 }

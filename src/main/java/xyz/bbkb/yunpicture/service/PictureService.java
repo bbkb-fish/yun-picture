@@ -12,6 +12,7 @@ import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.util.List;
 
 /**
 * @author dearSmile
@@ -111,4 +112,13 @@ public interface PictureService extends IService<Picture> {
      * @param loginUser
      */
     void editPicture(PictureEditDTO pictureEditDTO, User loginUser);
+
+    /**
+     * 根据主色调查询图片
+     * @param spaceId
+     * @param picColor
+     * @param loginUser
+     * @return
+     */
+    List<PictureVO> searchPictureByColor(Long spaceId, String picColor, User loginUser);
 }
