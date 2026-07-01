@@ -10,12 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import xyz.bbkb.yunpicture.annotation.AuthCheck;
 import xyz.bbkb.yunpicture.common.BaseResponse;
@@ -40,7 +36,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -64,7 +59,7 @@ public class PictureController {
             @RequestPart("file")MultipartFile multipartFile,
             @RequestPart(value = "pictureUploadDTO", required = false) PictureUploadDTO pictureUploadDTO,
             HttpServletRequest request
-            ) {
+    ) {
         User loginUser = userService.getLoginUser(request);
         PictureVO pictureVO = pictureService.uploadPicture(multipartFile, pictureUploadDTO, loginUser);
         return ResultUtils.success(pictureVO);
@@ -180,6 +175,11 @@ public class PictureController {
         log.info("管理员分页查询图片：{}", pictureQueryRequest);
         long current = pictureQueryRequest.getCurrent();
         long size = pictureQueryRequest.getPageSize();
+        if (pictureQueryRequest.getSpaceId() == - 1)
+        {
+            pictureQueryRequest.setSpaceId(null);
+            pictureQueryRequest.setNullSpaceId(true);
+        }
         // 查询数据库
         Page<Picture> picturePage = pictureService.page(new Page<>(current, size),
                 pictureService.getQueryWrapper(pictureQueryRequest));
@@ -233,7 +233,7 @@ public class PictureController {
         // 限制爬虫
         ThrowUtils.throwIf(size > 20, ErrorCode.PARAMS_ERROR);
         // 普通用户只能看审核通过的
-        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.ACCEPTED.getStatus());
+//        pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.ACCEPTED.getStatus());
         // 查询缓存，缓存没有，再查询数据库
         String queryCondition = JSONUtil.toJsonStr(pictureQueryRequest);
         // 转为MD5， 防止查询条件过长浪费空间
@@ -255,6 +255,22 @@ public class PictureController {
             LOCAL_CACHE.put(redisKey, cacheValue);
             Page<PictureVO> cachePage = JSONUtil.toBean(cacheValue, Page.class);
             return ResultUtils.success(cachePage);
+        }
+        // 空间权限校验
+        Long spaceId = pictureQueryRequest.getSpaceId();
+        if (spaceId == null) {
+            // 公开图库
+            // 普通用户只能看审核通过的
+            pictureQueryRequest.setReviewStatus(PictureReviewStatusEnum.ACCEPTED.getStatus());
+            pictureQueryRequest.setNullSpaceId(true);
+        } else {
+            // 私有空间
+            User user = userService.getLoginUser(request);
+            Space space = spaceService.getById(spaceId);
+            ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUND_ERROR, "空间不存在");
+            if (!user.getId().equals(space.getUserId())) {
+                throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+            }
         }
         // 查询数据库
         Page<Picture> picturePage = pictureService.page(new Page<>(current, size),

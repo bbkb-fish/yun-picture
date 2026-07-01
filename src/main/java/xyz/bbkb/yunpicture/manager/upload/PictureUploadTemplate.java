@@ -57,7 +57,7 @@ public abstract class PictureUploadTemplate {
                 if (objectList.size() > 1) {
                     thumbnailCiObject = objectList.get(1);
                 }
-                return buildResult(originalFilename, uploadPath, ciObject, thumbnailCiObject);
+                return buildResult(originalFilename, uploadPath, ciObject, thumbnailCiObject, file);
             }
             // 封装返回结果
             return buildResult(originalFilename, file, uploadPath, imageInfo);
@@ -113,13 +113,13 @@ public abstract class PictureUploadTemplate {
      * @param ciObject
      * @return
      */
-    private UploadPictureFileDTO buildResult(String originalFilename, String uploadPath, CIObject ciObject, CIObject thumbnailObject) {
+    private UploadPictureFileDTO buildResult(String originalFilename, String uploadPath, CIObject ciObject, CIObject thumbnailObject, File file) {
         UploadPictureFileDTO uploadPictureDTO = new UploadPictureFileDTO();
         uploadPictureDTO.setUrl(cosClientConfig.getHost() + "/" + ciObject.getKey());
         uploadPictureDTO.setOriginUrl(cosClientConfig.getHost() + "/" +uploadPath);
         uploadPictureDTO.setThumbnailUrl(cosClientConfig.getHost() + "/" + thumbnailObject.getKey());
         uploadPictureDTO.setPicName(FileUtil.mainName(originalFilename));
-        uploadPictureDTO.setPicSize(ciObject.getSize().longValue());
+        uploadPictureDTO.setPicSize(FileUtil.size(file));
         uploadPictureDTO.setPicFormat(ciObject.getFormat());
         uploadPictureDTO.setPicHeight(ciObject.getHeight());
         uploadPictureDTO.setPicWidth(ciObject.getWidth());

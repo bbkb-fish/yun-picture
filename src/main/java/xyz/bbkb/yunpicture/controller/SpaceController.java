@@ -33,6 +33,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -128,9 +129,10 @@ public class SpaceController {
         // 查询数据库
         Space space = spaceService.getById(id);
         User loginUser = userService.getLoginUser(request);
-        // 如果查到的空间未过申， 并且不是自己的空间， 报错
+        // 如果查到的不是自己的空间， 报错
         ThrowUtils.throwIf(space == null, ErrorCode.NOT_FOUNT_EORROR);
-        // todo: 权限控制，除了自己和管理员，其他人应该都不能查到自己的空间数据
+        // 权限控制，除了自己，其他人应该都不能查到自己的空间数据
+        ThrowUtils.throwIf(!Objects.equals(space.getUserId(), loginUser.getId()), ErrorCode.NO_AUTH_ERROR);
         // 获取封装类
         return ResultUtils.success(spaceService.getSpaceVO(space, request));
     }
