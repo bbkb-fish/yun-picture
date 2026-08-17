@@ -1,5 +1,5 @@
 HELP.md
-applicayion-local.yaml
+application-local.yaml
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

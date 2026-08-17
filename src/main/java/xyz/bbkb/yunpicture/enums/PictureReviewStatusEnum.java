@@ -1,8 +1,6 @@
 package xyz.bbkb.yunpicture.enums;
 
 import cn.hutool.core.util.ObjUtil;
-import io.swagger.models.auth.In;
-import lombok.Data;
 import lombok.Getter;
 
 /**

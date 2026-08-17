@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.http.MediaType;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,21 +23,25 @@ import xyz.bbkb.yunpicture.domain.dto.picture.*;
 import xyz.bbkb.yunpicture.domain.entity.Picture;
 import xyz.bbkb.yunpicture.domain.entity.Space;
 import xyz.bbkb.yunpicture.domain.entity.User;
+import xyz.bbkb.yunpicture.domain.vo.HotPictureVO;
+import xyz.bbkb.yunpicture.domain.vo.PictureStatVO;
 import xyz.bbkb.yunpicture.domain.vo.PictureTagCategory;
 import xyz.bbkb.yunpicture.domain.vo.PictureVO;
 import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 import xyz.bbkb.yunpicture.exception.BusinessException;
 import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
+import xyz.bbkb.yunpicture.service.PictureHotService;
 import xyz.bbkb.yunpicture.service.PictureService;
 import xyz.bbkb.yunpicture.service.SpaceService;
 import xyz.bbkb.yunpicture.service.UserService;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -48,12 +53,41 @@ public class PictureController {
     private final PictureService pictureService;
     private final StringRedisTemplate redisTemplate;
     private final SpaceService spaceService;
+    private final PictureHotService pictureHotService;
     private final Cache<String, String> LOCAL_CACHE = Caffeine.newBuilder()
             .initialCapacity(1024) //  初始容量
             .maximumSize(10_000) // 最大条数
             .expireAfterWrite(Duration.ofMinutes(5)) // 过期时间
             .build();
-    @PostMapping("/upload")
+
+    /**
+     * 获取热门图片列表。
+     *
+     * @param period 排行周期：day、week、all
+     * @param limit 返回数量，范围 1～100
+     * @return 按热度从高到低排列的图片、排名、热度分数及实时统计
+     */
+    @GetMapping("/hot")
+    public BaseResponse<List<HotPictureVO>> listHotPictures(
+            @RequestParam(defaultValue = "day") String period,
+            @RequestParam(defaultValue = "20") int limit) {
+        List<HotPictureVO> hotPictures = pictureHotService.getHotPictures(period, limit);
+        return ResultUtils.success(hotPictures);
+    }
+
+    /**
+     * 获取单张公开图片的实时统计数据。
+     *
+     * @param pictureId 图片 ID
+     */
+    @GetMapping("/stat")
+    public BaseResponse<PictureStatVO> getPictureStat(@RequestParam Long pictureId) {
+        ThrowUtils.throwIf(pictureId == null || pictureId <= 0,
+                ErrorCode.PARAMS_ERROR, "图片 ID 不合法");
+        return ResultUtils.success(pictureHotService.getPictureStat(pictureId));
+    }
+
+    @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 //    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public BaseResponse<PictureVO> uploadPicture(
             @RequestPart("file")MultipartFile multipartFile,
@@ -162,6 +196,7 @@ public class PictureController {
         if(spaceId != null) {
             pictureService.checkPictureAuth(loginUser, picture);
         }
+        recordPublicPictureView(picture, loginUser);
         // 获取封装类
         return ResultUtils.success(pictureService.getPictureVO(picture, request));
     }
@@ -338,6 +373,7 @@ public class PictureController {
      */
     @PostMapping("/download/normal")
     public void downloadRemoteImage(@RequestBody PictureDownloadDTO pictureDownloadPictureDTO,
+                                    HttpServletRequest request,
                                     HttpServletResponse response) {
         ThrowUtils.throwIf(pictureDownloadPictureDTO == null, ErrorCode.PARAMS_ERROR);
         log.info("下载普通图片：{}", pictureDownloadPictureDTO);
@@ -347,10 +383,17 @@ public class PictureController {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
         }
 
+        // 私有空间图片仅允许空间所有者下载，公共图片保持原有访问规则。
+        if (picture.getSpaceId() != null) {
+            User loginUser = userService.getLoginUser(request);
+            pictureService.checkPictureAuth(loginUser, picture);
+        }
+
         String imageUrl = picture.getUrl();
         String filename = pictureDownloadPictureDTO.getFileName();
 
         pictureService.downloadImage(imageUrl, filename, response);
+        recordPublicPictureDownload(picture);
     }
 
     /**
@@ -359,6 +402,7 @@ public class PictureController {
     @PostMapping("/download/high")
     @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public void downloadRemoteHighDefinitionImage(@RequestBody PictureDownloadDTO pictureDownloadPictureDTO,
+                                                  HttpServletRequest request,
                                                   HttpServletResponse response) {
         ThrowUtils.throwIf(pictureDownloadPictureDTO == null, ErrorCode.PARAMS_ERROR);
         log.info("下载高清图片：{}", pictureDownloadPictureDTO);
@@ -368,6 +412,12 @@ public class PictureController {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
         }
 
+        // 即使是管理员接口，也不能下载其他用户私人空间中的图片。
+        if (picture.getSpaceId() != null) {
+            User loginUser = userService.getLoginUser(request);
+            pictureService.checkPictureAuth(loginUser, picture);
+        }
+
         // 优先使用原图地址
         String imageUrl = (picture.getOriginUrl() != null && !picture.getOriginUrl().isEmpty())
                 ? picture.getOriginUrl()
@@ -375,6 +425,7 @@ public class PictureController {
         String filename = pictureDownloadPictureDTO.getFileName();
 
         pictureService.downloadImage(imageUrl, filename, response);
+        recordPublicPictureDownload(picture);
     }
 
     /**
@@ -382,6 +433,7 @@ public class PictureController {
      * @param searchDTO
      * @return
      */
+    @PostMapping("/search/color")
     public BaseResponse<List<PictureVO>> searchPictureByColor(@RequestBody SearchPictureByColorDTO searchDTO, HttpServletRequest request) {
         ThrowUtils.throwIf(searchDTO == null, ErrorCode.PARAMS_ERROR);
         String picColor = searchDTO.getPicColor();
@@ -389,6 +441,39 @@ public class PictureController {
         User user = userService.getLoginUser(request);
         List<PictureVO> pictureVOS = pictureService.searchPictureByColor(spaceId, picColor, user);
         return ResultUtils.success(pictureVOS);
+    }
+
+    /**
+     * 公开且审核通过的图片才参与热度统计。统计属于辅助能力，
+     * Redis 暂时不可用时不能影响图片详情和下载主流程。
+     */
+    private void recordPublicPictureView(Picture picture, User loginUser) {
+        if (!isPublicAcceptedPicture(picture)) {
+            return;
+        }
+        try {
+            pictureHotService.recordView(picture.getId(), "user:" + loginUser.getId());
+        } catch (Exception exception) {
+            log.warn("记录图片 {} 浏览热度失败", picture.getId(), exception);
+        }
+    }
+
+    private void recordPublicPictureDownload(Picture picture) {
+        if (!isPublicAcceptedPicture(picture)) {
+            return;
+        }
+        try {
+            pictureHotService.recordDownload(picture.getId());
+        } catch (Exception exception) {
+            log.warn("记录图片 {} 下载热度失败", picture.getId(), exception);
+        }
+    }
+
+    private boolean isPublicAcceptedPicture(Picture picture) {
+        return picture != null
+                && picture.getSpaceId() == null
+                && Objects.equals(picture.getReviewStatus(),
+                PictureReviewStatusEnum.ACCEPTED.getStatus());
     }
 
 }

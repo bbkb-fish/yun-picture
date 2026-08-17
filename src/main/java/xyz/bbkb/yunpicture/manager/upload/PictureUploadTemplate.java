@@ -39,11 +39,12 @@ public abstract class PictureUploadTemplate {
         // 加时间戳 日期
         String uploadFilename = String.format("%s_%s.%s", DateUtil.formatDate(new Date()), uuid, FileUtil.getSuffix(originalFilename));
         // 最终上传路径
-        String uploadPath = String.format("/%s/%s", uploadPathPrefix, uploadFilename);
+        String uploadPath = String.format("%s/%s", uploadPathPrefix, uploadFilename);
         // 解析结果
         File file = null;
         try {
-            file = File.createTempFile(uploadPath, null);
+            String suffix = "." + FileUtil.getSuffix(originalFilename);
+            file = File.createTempFile("yun-picture-", suffix);
             processFile(inputSource, file);
             PutObjectResult putObjectResult = cosManager.putAndAnalysisObject(uploadPath, file);
             ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();

@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import xyz.bbkb.yunpicture.annotation.AuthCheck;
 import xyz.bbkb.yunpicture.common.BaseResponse;
 import xyz.bbkb.yunpicture.common.DeleteRequest;
@@ -20,7 +22,7 @@ import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
 import xyz.bbkb.yunpicture.service.UserService;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 
 @Slf4j
@@ -64,6 +66,48 @@ public class UserController {
         log.info("查询当前用户");
         User user = userService.getLoginUser(request);
         return ResultUtils.success(BeanUtil.copyProperties(user, UserLoginVO.class));
+    }
+
+    /**
+     * 从本地文件上传当前用户头像。
+     */
+    @PostMapping(value = "/avatar/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BaseResponse<String> uploadAvatar(@RequestPart("file") MultipartFile file,
+                                             HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(userService.updateUserAvatar(file, loginUser));
+    }
+
+    /**
+     * 从 URL 上传当前用户头像。
+     */
+    @PostMapping("/avatar/upload/url")
+    public BaseResponse<String> uploadAvatarByUrl(@RequestBody UserAvatarUploadDTO avatarUploadDTO,
+                                                  HttpServletRequest request) {
+        ThrowUtils.throwIf(avatarUploadDTO == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(userService.updateUserAvatar(avatarUploadDTO.getFileUrl(), loginUser));
+    }
+
+    /**
+     * 当前登录用户修改自己的昵称和简介。
+     */
+    @PostMapping("/update/my")
+    public BaseResponse<Boolean> updateMyProfile(@RequestBody UserProfileUpdateDTO profileUpdateDTO,
+                                                 HttpServletRequest request) {
+        ThrowUtils.throwIf(profileUpdateDTO == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(profileUpdateDTO.getUserName() != null
+                        && profileUpdateDTO.getUserName().length() > 32,
+                ErrorCode.PARAMS_ERROR, "用户名不能超过32个字符");
+        ThrowUtils.throwIf(profileUpdateDTO.getUserProfile() != null
+                        && profileUpdateDTO.getUserProfile().length() > 200,
+                ErrorCode.PARAMS_ERROR, "个人简介不能超过200个字符");
+        User loginUser = userService.getLoginUser(request);
+        User userUpdate = BeanUtil.copyProperties(profileUpdateDTO, User.class);
+        userUpdate.setId(loginUser.getId());
+        boolean result = userService.updateById(userUpdate);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "资料更新失败");
+        return ResultUtils.success(true);
     }
 
     /**

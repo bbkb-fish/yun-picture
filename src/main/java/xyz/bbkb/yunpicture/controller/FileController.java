@@ -17,7 +17,7 @@ import xyz.bbkb.yunpicture.common.ResultUtils;
 import xyz.bbkb.yunpicture.constant.UserConstant;
 import xyz.bbkb.yunpicture.manager.CosManager;
 
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 

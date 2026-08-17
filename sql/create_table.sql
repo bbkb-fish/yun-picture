@@ -94,3 +94,16 @@ CREATE INDEX idx_spaceId ON picture (spaceId);
 
 ALTER TABLE  picture
         ADD COLUMN picColor varchar(16) null comment '图片颜色主色调';
+
+
+-- 图片热度功能
+create table picture_stat
+(
+    picture_id     bigint primary key,
+    view_count     bigint default 0 not null,
+    download_count bigint default 0 not null,
+    like_count     bigint default 0 not null,
+    favorite_count bigint default 0 not null,
+    update_time    datetime default current_timestamp
+        on update current_timestamp
+);

@@ -16,7 +16,7 @@ import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
 import xyz.bbkb.yunpicture.service.UserService;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 @Aspect
 @Component
@@ -45,7 +45,7 @@ public class AuthAspect {
         // 必须有权限
         UserRoleEnum userRole = UserRoleEnum.getUserRoleEnum(user.getUserRole());
         if (userRole == null) {
-            return new BusinessException(ErrorCode.NO_AUTH_ERROR);
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         // 要求管理员权限
         ThrowUtils.throwIf(UserRoleEnum.ADMIN.equals(mustRole) && UserRoleEnum.USER.equals(userRole), ErrorCode.NO_AUTH_ERROR);

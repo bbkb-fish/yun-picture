@@ -2,16 +2,15 @@ package xyz.bbkb.yunpicture.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import org.springframework.web.multipart.MultipartFile;
 import xyz.bbkb.yunpicture.domain.dto.picture.*;
 import xyz.bbkb.yunpicture.domain.entity.Picture;
-import com.baomidou.mybatisplus.extension.service.IService;
+import com.baomidou.mybatisplus.spring.service.IService;
 import xyz.bbkb.yunpicture.domain.entity.User;
 import xyz.bbkb.yunpicture.domain.vo.PictureVO;
 import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 
 /**

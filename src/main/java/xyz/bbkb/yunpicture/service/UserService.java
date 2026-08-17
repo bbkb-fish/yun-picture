@@ -5,11 +5,11 @@ import xyz.bbkb.yunpicture.domain.dto.user.UserLoginDTO;
 import xyz.bbkb.yunpicture.domain.dto.user.UserQueryDTO;
 import xyz.bbkb.yunpicture.domain.dto.user.UserRegisterDTO;
 import xyz.bbkb.yunpicture.domain.entity.User;
-import com.baomidou.mybatisplus.extension.service.IService;
+import com.baomidou.mybatisplus.spring.service.IService;
 import xyz.bbkb.yunpicture.domain.vo.UserLoginVO;
 import xyz.bbkb.yunpicture.domain.vo.UserVO;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 
 /**
@@ -61,4 +61,13 @@ public interface UserService extends IService<User> {
      * 判断用户是否是管理员
      */
     boolean isAdmin(User user) ;
+
+    /**
+     * 上传并更新当前用户的头像。
+     *
+     * @param inputSource MultipartFile 或图片 URL
+     * @param loginUser 当前登录用户
+     * @return 新头像地址
+     */
+    String updateUserAvatar(Object inputSource, User loginUser);
 }

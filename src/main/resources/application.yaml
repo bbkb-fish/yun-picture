@@ -4,7 +4,7 @@ server:
     context-path: /api  # 表示必须要localhost:8123/api才可以访问
     session:
       cookie:
-        max-age: 2592000
+        max-age: 30d
 spring:
   application:
     name: yun-picture
@@ -16,21 +16,22 @@ spring:
     username: root
     password: 123456
     url: jdbc:mysql://localhost:3306/yun_picture
-  redis:
-    host: 192.168.215.128
-    port: 6379
-    password: 123456
-    lettuce:
-      pool:
-        max-active: 10
-        max-idle: 10
-        min-idle: 1
-        time-between-eviction-runs: 10s
+  data:
+    redis:
+      host: 192.168.215.128
+      port: 6379
+      password: 123456
+      lettuce:
+        pool:
+          max-active: 10
+          max-idle: 10
+          min-idle: 1
+          time-between-eviction-runs: 10s
   # session配置，把session存储到redis中，以防重启后又要重新登录
   session:
     store-type: redis
     # session 30 天后过期
-    timeout: 2592000
+    timeout: 30d
   profiles:
     active: local
   # servlet文件上传体积默认小于1M

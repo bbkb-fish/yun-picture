@@ -5,11 +5,11 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import xyz.bbkb.yunpicture.domain.dto.space.SpaceAddDTO;
 import xyz.bbkb.yunpicture.domain.dto.space.SpaceQueryDTO;
 import xyz.bbkb.yunpicture.domain.entity.Space;
-import com.baomidou.mybatisplus.extension.service.IService;
+import com.baomidou.mybatisplus.spring.service.IService;
 import xyz.bbkb.yunpicture.domain.entity.User;
 import xyz.bbkb.yunpicture.domain.vo.SpaceVO;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
 * @author dearSmile

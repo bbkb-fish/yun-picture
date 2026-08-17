@@ -6,7 +6,8 @@ import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.util.DigestUtils;
@@ -14,6 +15,7 @@ import xyz.bbkb.yunpicture.constant.UserConstant;
 import xyz.bbkb.yunpicture.domain.dto.user.UserLoginDTO;
 import xyz.bbkb.yunpicture.domain.dto.user.UserQueryDTO;
 import xyz.bbkb.yunpicture.domain.dto.user.UserRegisterDTO;
+import xyz.bbkb.yunpicture.domain.dto.file.UploadPictureFileDTO;
 import xyz.bbkb.yunpicture.domain.entity.User;
 import xyz.bbkb.yunpicture.domain.vo.UserLoginVO;
 import xyz.bbkb.yunpicture.domain.vo.UserVO;
@@ -21,13 +23,23 @@ import xyz.bbkb.yunpicture.enums.UserRoleEnum;
 import xyz.bbkb.yunpicture.exception.BusinessException;
 import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
+import xyz.bbkb.yunpicture.manager.CosManager;
+import xyz.bbkb.yunpicture.manager.upload.FilePictureUpload;
+import xyz.bbkb.yunpicture.manager.upload.PictureUploadTemplate;
+import xyz.bbkb.yunpicture.manager.upload.UrlPictureUpload;
 import xyz.bbkb.yunpicture.service.UserService;
 import xyz.bbkb.yunpicture.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -37,7 +49,12 @@ import java.util.stream.Collectors;
 */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService{
+
+    private final FilePictureUpload filePictureUpload;
+    private final UrlPictureUpload urlPictureUpload;
+    private final CosManager cosManager;
 
     /**
      *  用户注册
@@ -178,6 +195,72 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public boolean isAdmin(User user) {
         return user != null && UserRoleEnum.ADMIN.getValue().equals(user.getUserRole());
+    }
+
+    @Override
+    public String updateUserAvatar(Object inputSource, User loginUser) {
+        ThrowUtils.throwIf(loginUser == null || loginUser.getId() == null, ErrorCode.NOT_LOGIN_ERROR);
+        User currentUser = this.getById(loginUser.getId());
+        ThrowUtils.throwIf(currentUser == null, ErrorCode.NOT_LOGIN_ERROR);
+
+        PictureUploadTemplate uploader = inputSource instanceof String
+                ? urlPictureUpload : filePictureUpload;
+        UploadPictureFileDTO uploadResult = uploader.uploadPicture(
+                inputSource, String.format("avatar/%s", currentUser.getId()));
+        String avatarUrl = StrUtil.isNotBlank(uploadResult.getThumbnailUrl())
+                ? uploadResult.getThumbnailUrl() : uploadResult.getUrl();
+        ThrowUtils.throwIf(StrUtil.isBlank(avatarUrl), ErrorCode.OPERATION_ERROR, "头像上传失败");
+
+        User userUpdate = new User();
+        userUpdate.setId(currentUser.getId());
+        userUpdate.setUserAvatar(avatarUrl);
+        boolean updated;
+        try {
+            updated = this.updateById(userUpdate);
+        } catch (RuntimeException exception) {
+            deleteUploadedFiles(uploadResult, null);
+            throw exception;
+        }
+        if (!updated) {
+            deleteUploadedFiles(uploadResult, null);
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "头像更新失败");
+        }
+
+        // 头像只保留用于展示的 256px 文件，删除上传过程中产生的其它版本。
+        deleteUploadedFiles(uploadResult, avatarUrl);
+        deleteOldManagedAvatar(currentUser.getUserAvatar(), currentUser.getId(), avatarUrl);
+        return avatarUrl;
+    }
+
+    private void deleteUploadedFiles(UploadPictureFileDTO uploadResult, String retainedUrl) {
+        Set<String> urls = new LinkedHashSet<>(Arrays.asList(
+                uploadResult.getUrl(), uploadResult.getOriginUrl(), uploadResult.getThumbnailUrl()));
+        urls.stream()
+                .filter(StrUtil::isNotBlank)
+                .filter(url -> !Objects.equals(url, retainedUrl))
+                .forEach(this::deleteCosFileQuietly);
+    }
+
+    private void deleteOldManagedAvatar(String oldAvatarUrl, Long userId, String newAvatarUrl) {
+        if (StrUtil.isBlank(oldAvatarUrl) || Objects.equals(oldAvatarUrl, newAvatarUrl)) {
+            return;
+        }
+        try {
+            String path = new URL(oldAvatarUrl).getPath();
+            if (path != null && path.startsWith("/avatar/" + userId + "/")) {
+                deleteCosFileQuietly(oldAvatarUrl);
+            }
+        } catch (MalformedURLException ignored) {
+            // 外部头像或历史非法地址不属于本站 COS，不做删除。
+        }
+    }
+
+    private void deleteCosFileQuietly(String fileUrl) {
+        try {
+            cosManager.delObject(fileUrl);
+        } catch (Exception exception) {
+            log.warn("清理头像文件失败，url={}", fileUrl, exception);
+        }
     }
 
     @Override
