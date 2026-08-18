@@ -262,7 +262,8 @@ public class SpaceController {
                                 spaceLevelEnum.getValue(),
                                 spaceLevelEnum.getText(),
                                 spaceLevelEnum.getMaxCount(),
-                                spaceLevelEnum.getMaxSize())
+                                spaceLevelEnum.getMaxSize(),
+                                spaceLevelEnum.getOriginalDownloadDailyLimit())
                 ).collect(Collectors.toList());
         return ResultUtils.success(spaceLevelList);
     }

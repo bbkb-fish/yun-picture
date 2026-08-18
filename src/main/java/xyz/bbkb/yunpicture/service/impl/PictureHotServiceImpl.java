@@ -122,6 +122,49 @@ public class PictureHotServiceImpl implements PictureHotService {
     }
 
     /**
+     * 使用关系表的真实数量修正 Redis 统计。
+     * 排行榜不在这里重算：浏览、下载缺少逐条行为记录，无法准确恢复某天或某周的历史分数。
+     */
+    @Override
+    public boolean reconcileInteractionCounts(Long pictureId, long likeCount, long favoriteCount) {
+        ThrowUtils.throwIf(pictureId == null || pictureId <= 0 || likeCount < 0 || favoriteCount < 0,
+                ErrorCode.PARAMS_ERROR, "互动校准参数不合法");
+        initializeStatIfNecessary(pictureId);
+
+        String statKey = getStatKey(pictureId);
+        Map<Object, Object> currentValues = redisTemplate.opsForHash().entries(statKey);
+        long currentLikeCount = readLong(currentValues, RedisConstant.LIKE_COUNT);
+        long currentFavoriteCount = readLong(currentValues, RedisConstant.FAVORITE_COUNT);
+        if (currentLikeCount == likeCount && currentFavoriteCount == favoriteCount) {
+            return false;
+        }
+
+        // Hash 的单字段覆盖不会影响同时保存的浏览量、下载量。
+        Map<String, String> correctedValues = new LinkedHashMap<>();
+        correctedValues.put(RedisConstant.LIKE_COUNT, String.valueOf(likeCount));
+        correctedValues.put(RedisConstant.FAVORITE_COUNT, String.valueOf(favoriteCount));
+        redisTemplate.opsForHash().putAll(statKey, correctedValues);
+        redisTemplate.opsForSet().add(RedisConstant.PICTURE_STAT_DIRTY, pictureId.toString());
+        return true;
+    }
+
+    @Override
+    public void removePictureHotData(Long pictureId) {
+        ThrowUtils.throwIf(pictureId == null || pictureId <= 0,
+                ErrorCode.PARAMS_ERROR, "图片 ID 不合法");
+        String member = pictureId.toString();
+
+        // 删除实时 Hash，并避免尚未处理的 dirty 集合再次把旧统计落库。
+        redisTemplate.delete(getStatKey(pictureId));
+        redisTemplate.opsForSet().remove(RedisConstant.PICTURE_STAT_DIRTY, member);
+
+        // 当前日榜、周榜和总榜移除即可；旧周期榜会按 TTL 自动过期。
+        redisTemplate.opsForZSet().remove(getRankKey(PictureHotConstant.PERIOD_DAY), member);
+        redisTemplate.opsForZSet().remove(getRankKey(PictureHotConstant.PERIOD_WEEK), member);
+        redisTemplate.opsForZSet().remove(RedisConstant.PICTURE_RANK_ALL, member);
+    }
+
+    /**
      * 获取指定周期的热门图片。
      *
      * @param period 排行周期：day、week 或 all

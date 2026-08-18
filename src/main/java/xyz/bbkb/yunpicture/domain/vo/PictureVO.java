@@ -105,6 +105,9 @@ public class PictureVO implements Serializable {
     /** 当前登录用户是否收藏；未登录时为 false。 */
     private Boolean favorited = false;
 
+    /** 收藏列表中的图片是否已经被删除。 */
+    private Boolean deleted = false;
+
     public static Picture voToObj(PictureVO pictureVO) {
         if (pictureVO == null) {
             return null;

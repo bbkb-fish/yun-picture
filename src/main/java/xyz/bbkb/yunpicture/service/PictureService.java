@@ -7,6 +7,7 @@ import xyz.bbkb.yunpicture.domain.entity.Picture;
 import com.baomidou.mybatisplus.spring.service.IService;
 import xyz.bbkb.yunpicture.domain.entity.User;
 import xyz.bbkb.yunpicture.domain.vo.PictureVO;
+import xyz.bbkb.yunpicture.common.PageRequest;
 import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,6 +42,11 @@ public interface PictureService extends IService<Picture> {
     PictureVO getPictureVO(Picture picture, HttpServletRequest request) ;
 
     Page<PictureVO> getPagePictureVO(Page<Picture> picturePage, HttpServletRequest request);
+
+    /** 分页获取当前登录用户收藏的、仍然公开可见的图片。 */
+    Page<PictureVO> listMyFavoritePictures(PageRequest pageRequest,
+                                           User loginUser,
+                                           HttpServletRequest request);
 
     /**
      * 数据校验
@@ -78,12 +84,13 @@ public interface PictureService extends IService<Picture> {
     Integer uploadPictureByBatch(PictureLoadByBatchDTO pictureLoadByBatchDTO, User loginUser);
 
     /**
-     * 流式下载图片
-     * @param imageUrl
-     * @param filename
-     * @param response
+     * 将远程图片写入响应。
+     * @param imageUrl 图片地址
+     * @param filename 下载文件名
+     * @param response HTTP 响应
+     * @return 是否完整下载成功，供原图额度失败补偿使用
      */
-    void downloadImage(String imageUrl, String filename, HttpServletResponse response);
+    boolean downloadImage(String imageUrl, String filename, HttpServletResponse response);
 
     /**
      * 清除COS中的文件

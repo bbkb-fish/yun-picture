@@ -20,6 +20,11 @@ public final class PictureHotConstant {
     public static final long STAT_SYNC_INITIAL_DELAY_MILLIS = 60 * 1000L;
     public static final long STAT_SYNC_INTERVAL_MILLIS = 5 * 60 * 1000L;
 
+    /** 每天凌晨 3 点在业务低峰校准点赞、收藏计数。 */
+    public static final String INTERACTION_RECONCILE_CRON = "0 0 3 * * ?";
+    public static final String SCHEDULE_ZONE = "Asia/Shanghai";
+    public static final Duration INTERACTION_RECONCILE_LOCK_TTL = Duration.ofMinutes(30);
+
     public static final double VIEW_SCORE = 1D;
     public static final double DOWNLOAD_SCORE = 5D;
     public static final double LIKE_SCORE = 3D;

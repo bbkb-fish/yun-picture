@@ -16,6 +16,9 @@ public interface RedisConstant {
     String PICTURE_STAT_DIRTY = prefix + "picture:stat:dirty";
     String PICTURE_STAT_PROCESSING = prefix + "picture:stat:processing:";
 
+    // 点赞收藏校准任务锁，防止多个应用实例同时执行全量校准
+    String PICTURE_INTERACTION_RECONCILE_LOCK = prefix + "picture:interaction:reconcile:lock";
+
     // 图片热度排行榜
     String PICTURE_RANK_DAY = prefix + "picture:rank:day:";
     String PICTURE_RANK_WEEK = prefix + "picture:rank:week:";

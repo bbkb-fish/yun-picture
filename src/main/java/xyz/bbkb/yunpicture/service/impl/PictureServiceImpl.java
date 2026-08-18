@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import xyz.bbkb.yunpicture.domain.dto.file.UploadPictureFileDTO;
+import xyz.bbkb.yunpicture.common.PageRequest;
 import xyz.bbkb.yunpicture.domain.dto.picture.*;
 import xyz.bbkb.yunpicture.domain.entity.Picture;
 import xyz.bbkb.yunpicture.domain.entity.Space;
@@ -29,6 +30,7 @@ import xyz.bbkb.yunpicture.domain.vo.PictureVO;
 import xyz.bbkb.yunpicture.domain.vo.PictureInteractionVO;
 import xyz.bbkb.yunpicture.domain.vo.UserVO;
 import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
+import xyz.bbkb.yunpicture.enums.NotificationTypeEnum;
 import xyz.bbkb.yunpicture.exception.BusinessException;
 import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
@@ -38,7 +40,9 @@ import xyz.bbkb.yunpicture.manager.upload.PictureUploadTemplate;
 import xyz.bbkb.yunpicture.manager.upload.UrlPictureUpload;
 import xyz.bbkb.yunpicture.service.PictureService;
 import xyz.bbkb.yunpicture.service.PictureInteractionService;
+import xyz.bbkb.yunpicture.service.NotificationService;
 import xyz.bbkb.yunpicture.mapper.PictureMapper;
+import xyz.bbkb.yunpicture.mapper.PictureFavoriteMapper;
 import org.springframework.stereotype.Service;
 import xyz.bbkb.yunpicture.service.UserService;
 import xyz.bbkb.yunpicture.utils.PictureUtil;
@@ -76,6 +80,8 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     private final CosManager cosManager;
     private final SpaceServiceImpl spaceService;
     private final PictureInteractionService pictureInteractionService;
+    private final PictureFavoriteMapper pictureFavoriteMapper;
+    private final NotificationService notificationService;
 
     /**
      * 数据校验
@@ -99,6 +105,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void doPictureReview(PictureReviewDTO pictureReviewDTO, User user) {
         // 1. 校验参数
         ThrowUtils.throwIf(pictureReviewDTO == null, ErrorCode.PARAMS_ERROR);
@@ -117,6 +124,22 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         picture.setReviewTime(new Date());
         boolean result = this.updateById(picture);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
+        if (!Objects.equals(oldPicture.getUserId(), user.getId())) {
+            boolean accepted = PictureReviewStatusEnum.ACCEPTED.equals(pictureReviewStatusEnum);
+            String content = accepted
+                    ? "你的图片《" + oldPicture.getName() + "》已通过审核"
+                    : "你的图片《" + oldPicture.getName() + "》未通过审核"
+                    + (StrUtil.isBlank(pictureReviewDTO.getReviewMessage())
+                    ? "" : "：" + pictureReviewDTO.getReviewMessage());
+            notificationService.createNotification(
+                    oldPicture.getUserId(),
+                    NotificationTypeEnum.PICTURE_REVIEW,
+                    accepted ? "图片审核通过" : "图片审核未通过",
+                    content,
+                    "PICTURE",
+                    oldPicture.getId(),
+                    "PICTURE_REVIEW:" + oldPicture.getId() + ":" + pictureReviewStatusEnum.getStatus());
+        }
     }
 
     @Override
@@ -313,7 +336,17 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             return pictureVOPage;
         }
         // 对象列表 => 封装对象列表
-        List<PictureVO> pictureVOList = pictureList.stream().map(PictureVO::objToVO).collect(Collectors.toList());
+        List<PictureVO> pictureVOList = pictureList.stream().map(picture -> {
+            PictureVO pictureVO = PictureVO.objToVO(picture);
+            boolean deleted = Objects.equals(picture.getIsDelete(), 1);
+            pictureVO.setDeleted(deleted);
+            if (deleted) {
+                // COS 文件会在图片删除后清理，墓碑响应不得继续暴露失效文件地址。
+                pictureVO.setUrl(null);
+                pictureVO.setThumbnailUrl(null);
+            }
+            return pictureVO;
+        }).collect(Collectors.toList());
         // 1. 关联查询用户信息
         Set<Long> userIdSet = pictureList.stream().map(Picture::getUserId).collect(Collectors.toSet());
         Map<Long, List<User>> userIdUserListMap = userService.listByIds(userIdSet).stream()
@@ -341,6 +374,27 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         });
         pictureVOPage.setRecords(pictureVOList);
         return pictureVOPage;
+    }
+
+    @Override
+    public Page<PictureVO> listMyFavoritePictures(PageRequest pageRequest,
+                                                  User loginUser,
+                                                  HttpServletRequest request) {
+        ThrowUtils.throwIf(pageRequest == null, ErrorCode.PARAMS_ERROR, "分页参数不能为空");
+        ThrowUtils.throwIf(loginUser == null || loginUser.getId() == null,
+                ErrorCode.NOT_LOGIN_ERROR);
+        int current = pageRequest.getCurrent();
+        int pageSize = pageRequest.getPageSize();
+        ThrowUtils.throwIf(current <= 0 || pageSize <= 0 || pageSize > 20,
+                ErrorCode.PARAMS_ERROR, "每页数量必须在 1 到 20 之间");
+
+        // 联表查询已经完成可见性过滤和收藏时间排序，再复用统一 VO 封装补充作者、点赞状态。
+        Page<Picture> favoritePage = new Page<>(current, pageSize);
+        pictureFavoriteMapper.selectFavoritePicturePage(
+                favoritePage,
+                loginUser.getId(),
+                PictureReviewStatusEnum.ACCEPTED.getStatus());
+        return getPagePictureVO(favoritePage, request);
     }
 
     @Override
@@ -528,7 +582,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
 
         return uploadCount;
     }
-    public void downloadImage(String imageUrl, String filename, HttpServletResponse response) {
+    public boolean downloadImage(String imageUrl, String filename, HttpServletResponse response) {
         if (imageUrl == null || imageUrl.isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "图片地址不存在");
         }
@@ -547,7 +601,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 log.error("远程服务器返回错误: {}", statusCode);
                 response.setStatus(HttpServletResponse.SC_BAD_GATEWAY);
                 response.getWriter().write("获取图片失败");
-                return;
+                return false;
             }
 
             // 读取前8个字节用于判断真实格式
@@ -597,6 +651,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 }
                 outputStream.flush();
                 log.info("图片下载成功: {}, 大小: {} bytes, 格式: {}", finalFilename, totalBytes, realExtension);
+                return true;
             }
 
         } catch (Exception e) {
@@ -610,6 +665,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             } catch (Exception ex) {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "下载失败");
             }
+            return false;
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -684,6 +740,9 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
         // 操作数据库
         boolean result = this.removeById(picture);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION);
+
+        // 与图片删除处于同一数据库事务：清除点赞，保留收藏作为用户的删除历史。
+        pictureInteractionService.handlePictureDeleted(pictureId);
 
         if (picture.getSpaceId() != null) {
             long pictureSize = picture.getPicSize() == null ? 0L : picture.getPicSize();

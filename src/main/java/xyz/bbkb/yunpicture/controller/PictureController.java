@@ -18,12 +18,14 @@ import xyz.bbkb.yunpicture.annotation.AuthCheck;
 import xyz.bbkb.yunpicture.common.BaseResponse;
 import xyz.bbkb.yunpicture.common.DeleteRequest;
 import xyz.bbkb.yunpicture.common.ResultUtils;
+import xyz.bbkb.yunpicture.common.PageRequest;
 import xyz.bbkb.yunpicture.constant.UserConstant;
 import xyz.bbkb.yunpicture.domain.dto.picture.*;
 import xyz.bbkb.yunpicture.domain.entity.Picture;
 import xyz.bbkb.yunpicture.domain.entity.Space;
 import xyz.bbkb.yunpicture.domain.entity.User;
 import xyz.bbkb.yunpicture.domain.vo.HotPictureVO;
+import xyz.bbkb.yunpicture.domain.vo.OriginalDownloadQuotaVO;
 import xyz.bbkb.yunpicture.domain.vo.PictureStatVO;
 import xyz.bbkb.yunpicture.domain.vo.PictureTagCategory;
 import xyz.bbkb.yunpicture.domain.vo.PictureVO;
@@ -33,6 +35,7 @@ import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
 import xyz.bbkb.yunpicture.service.PictureHotService;
 import xyz.bbkb.yunpicture.service.PictureInteractionService;
+import xyz.bbkb.yunpicture.service.OriginalDownloadQuotaService;
 import xyz.bbkb.yunpicture.service.PictureService;
 import xyz.bbkb.yunpicture.service.SpaceService;
 import xyz.bbkb.yunpicture.service.UserService;
@@ -56,6 +59,7 @@ public class PictureController {
     private final SpaceService spaceService;
     private final PictureHotService pictureHotService;
     private final PictureInteractionService pictureInteractionService;
+    private final OriginalDownloadQuotaService originalDownloadQuotaService;
     private final Cache<String, String> LOCAL_CACHE = Caffeine.newBuilder()
             .initialCapacity(1024) //  初始容量
             .maximumSize(10_000) // 最大条数
@@ -238,6 +242,17 @@ public class PictureController {
         Long pictureId = getInteractionPictureId(interactionDTO);
         User loginUser = userService.getLoginUser(request);
         return ResultUtils.success(pictureInteractionService.unfavoritePicture(pictureId, loginUser));
+    }
+
+    /**
+     * 分页获取“我的收藏”。用户 ID 始终从登录态获取，不能由前端指定。
+     */
+    @PostMapping("/favorite/list/page")
+    public BaseResponse<Page<PictureVO>> listMyFavoritePictures(@RequestBody PageRequest pageRequest,
+                                                                HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(
+                pictureService.listMyFavoritePictures(pageRequest, loginUser, request));
     }
 
     /** 统一校验互动接口请求中的图片 ID。 */
@@ -439,15 +454,15 @@ public class PictureController {
         String imageUrl = picture.getUrl();
         String filename = pictureDownloadPictureDTO.getFileName();
 
-        pictureService.downloadImage(imageUrl, filename, response);
-        recordPublicPictureDownload(picture);
+        if (pictureService.downloadImage(imageUrl, filename, response)) {
+            recordPublicPictureDownload(picture);
+        }
     }
 
     /**
      * 下载高清图片（优化版）
      */
     @PostMapping("/download/high")
-    @AuthCheck(mustRole = UserConstant.ADMIN_ROLE)
     public void downloadRemoteHighDefinitionImage(@RequestBody PictureDownloadDTO pictureDownloadPictureDTO,
                                                   HttpServletRequest request,
                                                   HttpServletResponse response) {
@@ -459,9 +474,9 @@ public class PictureController {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "图片不存在");
         }
 
-        // 即使是管理员接口，也不能下载其他用户私人空间中的图片。
+        User loginUser = userService.getLoginUser(request);
+        // 私有空间原图始终只能由空间所有者下载，空间等级不会放宽图片本身的权限。
         if (picture.getSpaceId() != null) {
-            User loginUser = userService.getLoginUser(request);
             pictureService.checkPictureAuth(loginUser, picture);
         }
 
@@ -471,8 +486,28 @@ public class PictureController {
                 : picture.getUrl();
         String filename = pictureDownloadPictureDTO.getFileName();
 
-        pictureService.downloadImage(imageUrl, filename, response);
-        recordPublicPictureDownload(picture);
+        // 写响应前先原子预占额度；远程文件下载失败时立即归还。
+        originalDownloadQuotaService.reserveQuota(loginUser);
+        boolean downloadSuccess = false;
+        try {
+            downloadSuccess = pictureService.downloadImage(imageUrl, filename, response);
+            if (downloadSuccess) {
+                recordPublicPictureDownload(picture);
+            }
+        } finally {
+            // 包括地址为空、远程连接失败和传输中断在内，任何失败都不消耗用户额度。
+            if (!downloadSuccess) {
+                originalDownloadQuotaService.releaseQuota(loginUser);
+            }
+        }
+    }
+
+    /** 获取当前用户今天的原图下载用量和剩余额度。 */
+    @GetMapping("/download/quota")
+    public BaseResponse<OriginalDownloadQuotaVO> getOriginalDownloadQuota(
+            HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(originalDownloadQuotaService.getQuota(loginUser));
     }
 
     /**

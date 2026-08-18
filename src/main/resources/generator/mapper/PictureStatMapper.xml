@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="generator.mapper.PictureStatMapper">
+
+    <resultMap id="BaseResultMap" type="generator.domain.PictureStat">
+            <id property="picture_id" column="picture_id" />
+            <result property="view_count" column="view_count" />
+            <result property="download_count" column="download_count" />
+            <result property="like_count" column="like_count" />
+            <result property="favorite_count" column="favorite_count" />
+            <result property="update_time" column="update_time" />
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        picture_id,view_count,download_count,like_count,favorite_count,update_time
+    </sql>
+</mapper>

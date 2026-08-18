@@ -131,3 +131,86 @@ CREATE TABLE picture_favorite (
       KEY idx_picture_id (picture_id),
       KEY idx_user_time (user_id, favorite_time)
 );
+
+-- 评论功能
+CREATE TABLE picture_comment (
+                                 id             BIGINT       NOT NULL COMMENT '评论 ID',
+                                 picture_id     BIGINT       NOT NULL COMMENT '图片 ID',
+                                 user_id        BIGINT       NOT NULL COMMENT '评论用户 ID',
+
+                                 root_id        BIGINT       NOT NULL DEFAULT 0 COMMENT '所属一级评论 ID',
+                                 parent_id      BIGINT       NOT NULL DEFAULT 0 COMMENT '直接回复的评论 ID',
+                                 reply_user_id  BIGINT       NULL COMMENT '被回复用户 ID',
+
+                                 content        VARCHAR(500) NOT NULL COMMENT '评论内容',
+                                 reply_count    INT          NOT NULL DEFAULT 0 COMMENT '回复数量',
+
+                                 create_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                 update_time    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                     ON UPDATE CURRENT_TIMESTAMP,
+                                 is_delete      TINYINT      NOT NULL DEFAULT 0 COMMENT '是否删除',
+
+                                 PRIMARY KEY (id),
+                                 KEY idx_picture_root_time (picture_id, root_id, create_time),
+                                 KEY idx_root_time (root_id, create_time),
+                                 KEY idx_user_time (user_id, create_time)
+) COMMENT '图片评论';
+
+-- 用户下载高清图片每日用量
+CREATE TABLE user_download_daily (
+                                     id BIGINT NOT NULL,
+                                     user_id BIGINT NOT NULL,
+                                     stat_date DATE NOT NULL,
+                                     original_download_count INT NOT NULL DEFAULT 0,
+                                     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                         ON UPDATE CURRENT_TIMESTAMP,
+                                     PRIMARY KEY (id),
+                                     UNIQUE KEY uk_user_date (user_id, stat_date)
+);
+
+-- 用户通知：MySQL 保存离线消息，SSE 只负责在线实时推送
+CREATE TABLE IF NOT EXISTS user_notification (
+    id BIGINT NOT NULL COMMENT '通知 ID',
+    user_id BIGINT NOT NULL COMMENT '接收用户 ID',
+    type VARCHAR(32) NOT NULL COMMENT '通知类型',
+    title VARCHAR(128) NOT NULL COMMENT '通知标题',
+    content VARCHAR(500) NOT NULL COMMENT '通知内容',
+    biz_type VARCHAR(32) NULL COMMENT '业务类型',
+    biz_id BIGINT NULL COMMENT '业务对象 ID',
+    dedupe_key VARCHAR(128) NULL COMMENT '消息幂等标识',
+    is_read TINYINT NOT NULL DEFAULT 0 COMMENT '是否已读',
+    read_time DATETIME NULL COMMENT '读取时间',
+    mq_status TINYINT NOT NULL DEFAULT 0 COMMENT 'MQ状态：0-待发送 1-已发送 2-发送中',
+    mq_retry_count INT NOT NULL DEFAULT 0 COMMENT 'MQ发送重试次数',
+    mq_next_retry_time DATETIME NULL COMMENT '下次MQ重试时间',
+    mq_sent_time DATETIME NULL COMMENT 'RabbitMQ确认接收时间',
+    mq_consumed_time DATETIME NULL COMMENT 'RabbitMQ消费者处理时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_user_dedupe (user_id, dedupe_key),
+    KEY idx_user_read_time (user_id, is_read, create_time),
+    KEY idx_user_time (user_id, create_time),
+    KEY idx_mq_retry (mq_status, mq_next_retry_time)
+) COMMENT '用户通知';
+
+
+-- user_notification 引入MQ
+ALTER TABLE user_notification
+    ADD COLUMN mq_status TINYINT NOT NULL DEFAULT 0
+        COMMENT 'MQ状态：0-待发送 1-已发送 2-发送中' AFTER read_time,
+    ADD COLUMN mq_retry_count INT NOT NULL DEFAULT 0
+        COMMENT 'MQ发送重试次数' AFTER mq_status,
+    ADD COLUMN mq_next_retry_time DATETIME NULL
+        COMMENT '下次MQ重试时间' AFTER mq_retry_count,
+    ADD COLUMN mq_sent_time DATETIME NULL
+        COMMENT 'RabbitMQ确认接收时间' AFTER mq_next_retry_time,
+    ADD COLUMN mq_consumed_time DATETIME NULL
+        COMMENT 'RabbitMQ消费者处理时间' AFTER mq_sent_time,
+    ADD KEY idx_mq_retry (mq_status, mq_next_retry_time);
+UPDATE user_notification
+SET mq_status = 1,
+    mq_sent_time = create_time,
+    mq_consumed_time = create_time
+WHERE mq_status = 0;
+

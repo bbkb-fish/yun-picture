@@ -6,9 +6,9 @@ import lombok.Getter;
 @Getter
 public enum SpaceLevelEnum {
 
-    COMMON("普通版", 0, 100, 100L * 1024 * 1024),
-    PROFESSIONAL("专业版", 1, 1000, 1000L * 1024 * 1024),
-    FLAGSHIP("旗舰版", 2, 10000, 10000L * 1024 * 1024);
+    COMMON("普通版", 0, 100, 100L * 1024 * 1024, 5),
+    PROFESSIONAL("专业版", 1, 1000, 1000L * 1024 * 1024, 100),
+    FLAGSHIP("旗舰版", 2, 10000, 10000L * 1024 * 1024, -1);
 
     private final String text;
 
@@ -18,18 +18,24 @@ public enum SpaceLevelEnum {
 
     private final long maxSize;
 
+    /** 每日原图下载上限；-1 表示不限量。 */
+    private final int originalDownloadDailyLimit;
+
 
     /**
      * @param text 文本
      * @param value 值
-     * @param maxSize 最大图片总大小
      * @param maxCount 最大图片总数量
+     * @param maxSize 最大图片总大小
+     * @param originalDownloadDailyLimit 每日原图下载上限，-1 表示不限量
      */
-    SpaceLevelEnum(String text, int value, long maxCount, long maxSize) {
+    SpaceLevelEnum(String text, int value, long maxCount, long maxSize,
+                   int originalDownloadDailyLimit) {
         this.text = text;
         this.value = value;
         this.maxCount = maxCount;
         this.maxSize = maxSize;
+        this.originalDownloadDailyLimit = originalDownloadDailyLimit;
     }
 
     /**
