@@ -32,6 +32,7 @@ import xyz.bbkb.yunpicture.exception.BusinessException;
 import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
 import xyz.bbkb.yunpicture.service.PictureHotService;
+import xyz.bbkb.yunpicture.service.PictureInteractionService;
 import xyz.bbkb.yunpicture.service.PictureService;
 import xyz.bbkb.yunpicture.service.SpaceService;
 import xyz.bbkb.yunpicture.service.UserService;
@@ -54,6 +55,7 @@ public class PictureController {
     private final StringRedisTemplate redisTemplate;
     private final SpaceService spaceService;
     private final PictureHotService pictureHotService;
+    private final PictureInteractionService pictureInteractionService;
     private final Cache<String, String> LOCAL_CACHE = Caffeine.newBuilder()
             .initialCapacity(1024) //  初始容量
             .maximumSize(10_000) // 最大条数
@@ -64,7 +66,7 @@ public class PictureController {
      * 获取热门图片列表。
      *
      * @param period 排行周期：day、week、all
-     * @param limit 返回数量，范围 1～100
+     * @param limit 返回数量，范围 1～60
      * @return 按热度从高到低排列的图片、排名、热度分数及实时统计
      */
     @GetMapping("/hot")
@@ -184,6 +186,7 @@ public class PictureController {
         ThrowUtils.throwIf(id <= 0, ErrorCode.PARAMS_ERROR);
         // 查询数据库
         Picture picture = pictureService.getById(id);
+        ThrowUtils.throwIf(picture == null, ErrorCode.NOT_FOUND_ERROR, "图片不存在");
         User loginUser = userService.getLoginUser(request);
         // 如果查到的图片未过申， 并且不是自己的图片， 报错
 //        ThrowUtils.throwIf(picture == null, ErrorCode.NOT_FOUNT_EORROR);
@@ -201,6 +204,50 @@ public class PictureController {
         return ResultUtils.success(pictureService.getPictureVO(picture, request));
     }
 
+    /** 点赞公开图片；重复调用不会重复增加点赞数。 */
+    @PostMapping("/like")
+    public BaseResponse<Boolean> likePicture(@RequestBody PictureInteractionDTO interactionDTO,
+                                             HttpServletRequest request) {
+        Long pictureId = getInteractionPictureId(interactionDTO);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(pictureInteractionService.likePicture(pictureId, loginUser));
+    }
+
+    /** 取消点赞；原本未点赞时也按成功处理，保证接口幂等。 */
+    @PostMapping("/unlike")
+    public BaseResponse<Boolean> unlikePicture(@RequestBody PictureInteractionDTO interactionDTO,
+                                               HttpServletRequest request) {
+        Long pictureId = getInteractionPictureId(interactionDTO);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(pictureInteractionService.unlikePicture(pictureId, loginUser));
+    }
+
+    /** 收藏公开图片；重复调用不会重复增加收藏数。 */
+    @PostMapping("/favorite")
+    public BaseResponse<Boolean> favoritePicture(@RequestBody PictureInteractionDTO interactionDTO,
+                                                 HttpServletRequest request) {
+        Long pictureId = getInteractionPictureId(interactionDTO);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(pictureInteractionService.favoritePicture(pictureId, loginUser));
+    }
+
+    /** 取消收藏；原本未收藏时也按成功处理，保证接口幂等。 */
+    @PostMapping("/unfavorite")
+    public BaseResponse<Boolean> unfavoritePicture(@RequestBody PictureInteractionDTO interactionDTO,
+                                                   HttpServletRequest request) {
+        Long pictureId = getInteractionPictureId(interactionDTO);
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(pictureInteractionService.unfavoritePicture(pictureId, loginUser));
+    }
+
+    /** 统一校验互动接口请求中的图片 ID。 */
+    private Long getInteractionPictureId(PictureInteractionDTO interactionDTO) {
+        ThrowUtils.throwIf(interactionDTO == null || interactionDTO.getPictureId() == null
+                        || interactionDTO.getPictureId() <= 0,
+                ErrorCode.PARAMS_ERROR, "图片 ID 不合法");
+        return interactionDTO.getPictureId();
+    }
+
     /**
      * 分页获取图片列表（仅管理员可用）
      */
@@ -210,8 +257,8 @@ public class PictureController {
         log.info("管理员分页查询图片：{}", pictureQueryRequest);
         long current = pictureQueryRequest.getCurrent();
         long size = pictureQueryRequest.getPageSize();
-        if (pictureQueryRequest.getSpaceId() == - 1)
-        {
+        // 兼容旧前端使用 -1 表示公共图库；Objects.equals 避免 null 自动拆箱导致 NPE。
+        if (Objects.equals(pictureQueryRequest.getSpaceId(), -1L)) {
             pictureQueryRequest.setSpaceId(null);
             pictureQueryRequest.setNullSpaceId(true);
         }

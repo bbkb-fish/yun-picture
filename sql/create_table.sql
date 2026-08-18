@@ -107,3 +107,27 @@ create table picture_stat
     update_time    datetime default current_timestamp
         on update current_timestamp
 );
+
+
+-- 点赞功能
+CREATE TABLE picture_like (
+      id          BIGINT      NOT NULL,
+      user_id     BIGINT      NOT NULL,
+      picture_id  BIGINT      NOT NULL,
+      create_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_user_picture (user_id, picture_id),
+      KEY idx_picture_id (picture_id),
+      KEY idx_user_time (user_id, create_time)
+);
+-- 收藏功能
+CREATE TABLE picture_favorite (
+      id            BIGINT      NOT NULL,
+      user_id       BIGINT      NOT NULL,
+      picture_id    BIGINT      NOT NULL,
+      favorite_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uk_user_picture (user_id, picture_id),
+      KEY idx_picture_id (picture_id),
+      KEY idx_user_time (user_id, favorite_time)
+);

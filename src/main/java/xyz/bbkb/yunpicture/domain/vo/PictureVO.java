@@ -99,6 +99,12 @@ public class PictureVO implements Serializable {
 
     private UserVO user;
 
+    /** 当前登录用户是否点赞；未登录时为 false。 */
+    private Boolean liked = false;
+
+    /** 当前登录用户是否收藏；未登录时为 false。 */
+    private Boolean favorited = false;
+
     public static Picture voToObj(PictureVO pictureVO) {
         if (pictureVO == null) {
             return null;

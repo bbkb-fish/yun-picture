@@ -28,6 +28,9 @@ public class HotPictureVO implements Serializable {
     /** Redis ZSet 中用于排行榜排序的热度分数。 */
     private Double hotScore;
 
+    /** 数据来源：day、week、all 或 latest。 */
+    private String rankSource;
+
     /** 累计浏览次数。 */
     private Long viewCount;
 

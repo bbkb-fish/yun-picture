@@ -26,6 +26,7 @@ import xyz.bbkb.yunpicture.domain.entity.Picture;
 import xyz.bbkb.yunpicture.domain.entity.Space;
 import xyz.bbkb.yunpicture.domain.entity.User;
 import xyz.bbkb.yunpicture.domain.vo.PictureVO;
+import xyz.bbkb.yunpicture.domain.vo.PictureInteractionVO;
 import xyz.bbkb.yunpicture.domain.vo.UserVO;
 import xyz.bbkb.yunpicture.enums.PictureReviewStatusEnum;
 import xyz.bbkb.yunpicture.exception.BusinessException;
@@ -36,6 +37,7 @@ import xyz.bbkb.yunpicture.manager.upload.FilePictureUpload;
 import xyz.bbkb.yunpicture.manager.upload.PictureUploadTemplate;
 import xyz.bbkb.yunpicture.manager.upload.UrlPictureUpload;
 import xyz.bbkb.yunpicture.service.PictureService;
+import xyz.bbkb.yunpicture.service.PictureInteractionService;
 import xyz.bbkb.yunpicture.mapper.PictureMapper;
 import org.springframework.stereotype.Service;
 import xyz.bbkb.yunpicture.service.UserService;
@@ -73,6 +75,7 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
     private final UrlPictureUpload urlPictureUpload;
     private final CosManager cosManager;
     private final SpaceServiceImpl spaceService;
+    private final PictureInteractionService pictureInteractionService;
 
     /**
      * 数据校验
@@ -293,6 +296,12 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
             UserVO userVO = userService.getUserVO(user);
             pictureVO.setUser(userVO);
         }
+        // 详情页通过联合索引读取当前用户状态；未登录用户直接得到 false。
+        User loginUser = userService.getLoginUserPermitNull(request);
+        PictureInteractionVO interaction = pictureInteractionService.getInteraction(
+                picture.getId(), loginUser == null ? null : loginUser.getId());
+        pictureVO.setLiked(interaction.getLiked());
+        pictureVO.setFavorited(interaction.getFavorited());
         return pictureVO;
     }
 
@@ -317,6 +326,18 @@ public class PictureServiceImpl extends ServiceImpl<PictureMapper, Picture>
                 user = userIdUserListMap.get(userId).get(0);
             }
             pictureVO.setUser(userService.getUserVO(user));
+        });
+        // 对整页图片批量查询两张关系表，固定为两次查询，避免逐张查询造成 N+1。
+        User loginUser = userService.getLoginUserPermitNull(request);
+        Map<Long, PictureInteractionVO> interactionMap = pictureInteractionService.getInteractionMap(
+                pictureList.stream().map(Picture::getId).collect(Collectors.toList()),
+                loginUser == null ? null : loginUser.getId());
+        pictureVOList.forEach(pictureVO -> {
+            PictureInteractionVO interaction = interactionMap.get(pictureVO.getId());
+            if (interaction != null) {
+                pictureVO.setLiked(interaction.getLiked());
+                pictureVO.setFavorited(interaction.getFavorited());
+            }
         });
         pictureVOPage.setRecords(pictureVOList);
         return pictureVOPage;

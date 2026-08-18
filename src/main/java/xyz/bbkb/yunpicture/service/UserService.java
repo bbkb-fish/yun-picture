@@ -40,6 +40,11 @@ public interface UserService extends IService<User> {
     User getLoginUser(HttpServletRequest request);
 
     /**
+     * 获取当前登录用户；未登录时返回 null，适用于公开页面补充个性化状态。
+     */
+    User getLoginUserPermitNull(HttpServletRequest request);
+
+    /**
      * 登出
      * @param request
      * @return

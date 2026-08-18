@@ -142,6 +142,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
+    public User getLoginUserPermitNull(HttpServletRequest request) {
+        if (request == null || request.getSession(false) == null) {
+            return null;
+        }
+        Object loginState = request.getSession(false).getAttribute(UserConstant.USER_LOGIN_STATE);
+        if (!(loginState instanceof User user) || user.getId() == null) {
+            return null;
+        }
+        // 这里只用于读取点赞、收藏状态，不额外查询用户表，减少公开列表的数据库访问。
+        return user;
+    }
+
+    @Override
     public Boolean userLogout(HttpServletRequest request) {
         User user = (User) request.getSession().getAttribute(UserConstant.USER_LOGIN_STATE);
         ThrowUtils.throwIf(BeanUtil.isEmpty(user) || user.getId() == null, ErrorCode.NOT_LOGIN_ERROR);

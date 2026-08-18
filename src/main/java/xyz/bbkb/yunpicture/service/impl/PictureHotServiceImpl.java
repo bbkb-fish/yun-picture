@@ -1,6 +1,7 @@
 package xyz.bbkb.yunpicture.service.impl;
 
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -18,14 +19,16 @@ import xyz.bbkb.yunpicture.exception.BusinessException;
 import xyz.bbkb.yunpicture.exception.ErrorCode;
 import xyz.bbkb.yunpicture.exception.ThrowUtils;
 import xyz.bbkb.yunpicture.mapper.PictureStatMapper;
+import xyz.bbkb.yunpicture.mapper.PictureMapper;
 import xyz.bbkb.yunpicture.service.PictureHotService;
-import xyz.bbkb.yunpicture.service.PictureService;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.IsoFields;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -47,7 +50,8 @@ import java.util.stream.Collectors;
 public class PictureHotServiceImpl implements PictureHotService {
 
     private final StringRedisTemplate redisTemplate;
-    private final PictureService pictureService;
+    // 热度服务只需要读取图片，直接依赖 Mapper 可以避免与 PictureService 形成循环依赖。
+    private final PictureMapper pictureMapper;
     private final PictureStatMapper pictureStatMapper;
 
     /**
@@ -70,7 +74,7 @@ public class PictureHotServiceImpl implements PictureHotService {
         }
 
         // 同时增加实时浏览量和各周期排行榜的热度分。
-        incrementStat(pictureId, RedisConstant.VIEW_COUNT);
+        changeStat(pictureId, RedisConstant.VIEW_COUNT, 1L);
         incrementRankScore(pictureId, PictureHotConstant.VIEW_SCORE);
     }
 
@@ -81,66 +85,188 @@ public class PictureHotServiceImpl implements PictureHotService {
     @Override
     public void recordDownload(Long pictureId) {
         getPublicPicture(pictureId);
-        incrementStat(pictureId, RedisConstant.DOWNLOAD_COUNT);
+        changeStat(pictureId, RedisConstant.DOWNLOAD_COUNT, 1L);
         incrementRankScore(pictureId, PictureHotConstant.DOWNLOAD_SCORE);
+    }
+
+    /** 点赞关系真正新增后，增加点赞数和排行榜热度。 */
+    @Override
+    public void recordLike(Long pictureId) {
+        getPublicPicture(pictureId);
+        changeStat(pictureId, RedisConstant.LIKE_COUNT, 1L);
+        incrementRankScore(pictureId, PictureHotConstant.LIKE_SCORE);
+    }
+
+    /** 点赞关系真正删除后，扣减点赞数和排行榜热度。 */
+    @Override
+    public void recordUnlike(Long pictureId) {
+        getPublicPicture(pictureId);
+        changeStat(pictureId, RedisConstant.LIKE_COUNT, -1L);
+        incrementRankScore(pictureId, -PictureHotConstant.LIKE_SCORE);
+    }
+
+    /** 收藏关系真正新增后，增加收藏数和排行榜热度。 */
+    @Override
+    public void recordFavorite(Long pictureId) {
+        getPublicPicture(pictureId);
+        changeStat(pictureId, RedisConstant.FAVORITE_COUNT, 1L);
+        incrementRankScore(pictureId, PictureHotConstant.FAVORITE_SCORE);
+    }
+
+    /** 收藏关系真正删除后，扣减收藏数和排行榜热度。 */
+    @Override
+    public void recordUnfavorite(Long pictureId) {
+        getPublicPicture(pictureId);
+        changeStat(pictureId, RedisConstant.FAVORITE_COUNT, -1L);
+        incrementRankScore(pictureId, -PictureHotConstant.FAVORITE_SCORE);
     }
 
     /**
      * 获取指定周期的热门图片。
      *
      * @param period 排行周期：day、week 或 all
-     * @param limit 返回数量，范围 1～100
+     * @param limit 返回数量，范围 1～60
      * @return 按热度从高到低排列的图片
      */
     @Override
     public List<HotPictureVO> getHotPictures(String period, int limit) {
         ThrowUtils.throwIf(limit <= 0 || limit > PictureHotConstant.MAX_HOT_PICTURE_LIMIT,
-                ErrorCode.PARAMS_ERROR, "排行榜数量必须在 1 到 100 之间");
+                ErrorCode.PARAMS_ERROR, "排行榜数量必须在 1 到 60 之间");
 
-        String rankKey = getRankKey(period);
-        // 同时读取成员和 score，避免为了取得热度分数再逐张查询 ZSet。
-        Set<ZSetOperations.TypedTuple<String>> rankedItems = redisTemplate.opsForZSet()
-                .reverseRangeWithScores(rankKey, 0, limit - 1L);
-        if (rankedItems == null || rankedItems.isEmpty()) {
-            return Collections.emptyList();
+        // 冷启动补位：日榜不足时依次使用周榜、总榜，相同图片只保留第一次出现的位置。
+        LinkedHashMap<Long, RankCandidate> candidates = new LinkedHashMap<>();
+        for (RankTier rankTier : getRankTiers(period)) {
+            appendRankCandidates(candidates, rankTier, limit);
         }
 
-        List<Long> pictureIds = new ArrayList<>(rankedItems.size());
-        Map<Long, Double> scoreMap = new java.util.LinkedHashMap<>();
-        for (ZSetOperations.TypedTuple<String> rankedItem : rankedItems) {
-            Long pictureId = parsePictureId(rankedItem.getValue());
-            if (pictureId != null) {
-                pictureIds.add(pictureId);
-                scoreMap.put(pictureId, rankedItem.getScore());
-            }
-        }
-        if (pictureIds.isEmpty()) {
-            return Collections.emptyList();
-        }
+        List<Long> pictureIds = new ArrayList<>(candidates.keySet());
 
         // 批量查询数据库，并过滤已经删除、转为私有或审核状态发生变化的图片。
-        Map<Long, Picture> pictureMap = pictureService.listByIds(pictureIds).stream()
-                .filter(this::isPublicPicture)
-                .collect(Collectors.toMap(Picture::getId, picture -> picture));
+        Map<Long, Picture> pictureMap = pictureIds.isEmpty()
+                ? Collections.emptyMap()
+                : pictureMapper.selectByIds(pictureIds).stream()
+                    .filter(this::isPublicPicture)
+                    .collect(Collectors.toMap(Picture::getId, picture -> picture));
 
         // MySQL 的 IN 查询不保证顺序，必须按照 Redis 返回的 ID 顺序重新组装。
         List<HotPictureVO> result = new ArrayList<>(pictureIds.size());
         for (Long pictureId : pictureIds) {
             Picture picture = pictureMap.get(pictureId);
             if (picture != null) {
+                RankCandidate candidate = candidates.get(pictureId);
                 PictureStatVO stat = readPictureStat(pictureId);
                 result.add(new HotPictureVO(
                         PictureVO.objToVO(picture),
                         result.size() + 1,
-                        scoreMap.getOrDefault(pictureId, 0D),
+                        candidate.score,
+                        candidate.source,
                         stat.getView_count(),
                         stat.getDownload_count(),
                         stat.getLike_count(),
                         stat.getFavorite_count()
                 ));
+                if (result.size() >= limit) {
+                    return result;
+                }
+            }
+        }
+
+        // Redis 榜单仍不足时，用最新审核通过的公开图片补齐，不写回榜单、不伪造热度。
+        int missingCount = limit - result.size();
+        if (missingCount > 0) {
+            Set<Long> existingIds = result.stream()
+                    .map(item -> item.getPicture().getId())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            QueryWrapper<Picture> fallbackQuery = new QueryWrapper<Picture>()
+                    .isNull("spaceId")
+                    .eq("reviewStatus", PictureReviewStatusEnum.ACCEPTED.getStatus())
+                    .orderByDesc("createTime")
+                    .last("LIMIT " + missingCount);
+            if (!existingIds.isEmpty()) {
+                fallbackQuery.notIn("id", existingIds);
+            }
+            for (Picture picture : pictureMapper.selectList(fallbackQuery)) {
+                if (!isPublicPicture(picture) || existingIds.contains(picture.getId())) {
+                    continue;
+                }
+                PictureStatVO stat = readPictureStat(picture.getId());
+                result.add(new HotPictureVO(
+                        PictureVO.objToVO(picture),
+                        result.size() + 1,
+                        0D,
+                        "latest",
+                        stat.getView_count(),
+                        stat.getDownload_count(),
+                        stat.getLike_count(),
+                        stat.getFavorite_count()
+                ));
+                existingIds.add(picture.getId());
+                if (result.size() >= limit) {
+                    break;
+                }
             }
         }
         return result;
+    }
+
+    private void appendRankCandidates(Map<Long, RankCandidate> candidates, RankTier rankTier, int limit) {
+        Set<ZSetOperations.TypedTuple<String>> rankedItems = redisTemplate.opsForZSet()
+                .reverseRangeWithScores(rankTier.key, 0, limit - 1L);
+        if (rankedItems == null) {
+            return;
+        }
+        for (ZSetOperations.TypedTuple<String> rankedItem : rankedItems) {
+            Long pictureId = parsePictureId(rankedItem.getValue());
+            if (pictureId != null) {
+                double score = rankedItem.getScore() == null ? 0D : rankedItem.getScore();
+                candidates.putIfAbsent(pictureId, new RankCandidate(score, rankTier.source));
+            }
+        }
+    }
+
+    private List<RankTier> getRankTiers(String period) {
+        String normalizedPeriod = period == null ? null : period.toLowerCase(Locale.ROOT);
+        List<RankTier> tiers = new ArrayList<>();
+        tiers.add(new RankTier(getRankKey(period), normalizePeriodSource(normalizedPeriod)));
+        if (PictureHotConstant.PERIOD_DAY.equals(normalizedPeriod)
+                || PictureHotConstant.PERIOD_DAILY.equals(normalizedPeriod)) {
+            tiers.add(new RankTier(getRankKey(PictureHotConstant.PERIOD_WEEK), PictureHotConstant.PERIOD_WEEK));
+            tiers.add(new RankTier(getRankKey(PictureHotConstant.PERIOD_ALL), PictureHotConstant.PERIOD_ALL));
+        } else if (PictureHotConstant.PERIOD_WEEK.equals(normalizedPeriod)
+                || PictureHotConstant.PERIOD_WEEKLY.equals(normalizedPeriod)) {
+            tiers.add(new RankTier(getRankKey(PictureHotConstant.PERIOD_ALL), PictureHotConstant.PERIOD_ALL));
+        }
+        return tiers;
+    }
+
+    private String normalizePeriodSource(String period) {
+        if (PictureHotConstant.PERIOD_DAILY.equals(period)) {
+            return PictureHotConstant.PERIOD_DAY;
+        }
+        if (PictureHotConstant.PERIOD_WEEKLY.equals(period)) {
+            return PictureHotConstant.PERIOD_WEEK;
+        }
+        return period;
+    }
+
+    private static class RankTier {
+        private final String key;
+        private final String source;
+
+        private RankTier(String key, String source) {
+            this.key = key;
+            this.source = source;
+        }
+    }
+
+    private static class RankCandidate {
+        private final double score;
+        private final String source;
+
+        private RankCandidate(double score, String source) {
+            this.score = score;
+            this.source = source;
+        }
     }
 
     /**
@@ -174,12 +300,14 @@ public class PictureHotServiceImpl implements PictureHotService {
     }
 
     /**
-     * 将指定统计字段原子加一，并将图片标记为待同步。
+     * 原子增减指定统计字段，并将图片标记为待同步。
+     * 是否真的发生点赞或收藏变化由 MySQL 关系表的影响行数保证，
+     * 因此重复请求不会重复增加或扣减这里的计数。
      */
-    private void incrementStat(Long pictureId, String field) {
+    private void changeStat(Long pictureId, String field, long delta) {
         initializeStatIfNecessary(pictureId);
         // Redis HINCRBY 是原子操作，并发请求不会互相覆盖。
-        redisTemplate.opsForHash().increment(getStatKey(pictureId), field, 1L);
+        redisTemplate.opsForHash().increment(getStatKey(pictureId), field, delta);
         redisTemplate.opsForSet().add(RedisConstant.PICTURE_STAT_DIRTY, pictureId.toString());
     }
 
@@ -257,7 +385,7 @@ public class PictureHotServiceImpl implements PictureHotService {
     private Picture getPublicPicture(Long pictureId) {
         ThrowUtils.throwIf(pictureId == null || pictureId <= 0,
                 ErrorCode.PARAMS_ERROR, "图片 ID 不合法");
-        Picture picture = pictureService.getById(pictureId);
+        Picture picture = pictureMapper.selectById(pictureId);
         ThrowUtils.throwIf(picture == null, ErrorCode.NOT_FOUND_ERROR, "图片不存在");
         ThrowUtils.throwIf(!isPublicPicture(picture), ErrorCode.NO_AUTH_ERROR,
                 "仅公开且审核通过的图片参与热度统计");
